@@ -10,6 +10,8 @@ import { computed, onMounted, ref, watch } from "vue";
 import TheIsland from "@/components/TheIsland.vue";
 import { useSystemMedia } from "@/lib/media";
 import { useLyrics } from "@/lib/lyrics";
+import { noticeWidth, useNotifications } from "@/lib/notifications";
+import { useSystemPower } from "@/lib/power";
 import type { Activity } from "@/lib/activities";
 
 /** Tamaños de la isla, en sincronía con las clases de TheIsland.vue. */
@@ -21,6 +23,24 @@ const WITH_LYRICS = { width: 540, height: 108 };
 const mode = ref<Activity>("music");
 const expanded = ref(false);
 const media = useSystemMedia();
+
+/** Cola de avisos: interrumpen la píldora compacta y se retiran solos. */
+const notifications = useNotifications();
+const notice = notifications.current;
+
+/**
+ * Aviso al conectar o desconectar el cargador.
+ *
+ * Solo se anuncia en equipos con batería, y el estado inicial no cuenta:
+ * arrancar enchufado no es una novedad.
+ */
+useSystemPower((state) => {
+  notifications.notify({
+    kind: "power",
+    label: state.plugged ? `${state.percent}% · Cargando` : `${state.percent}%`,
+    duration: 3200,
+  });
+});
 
 const formatTime = (seconds: number) =>
   `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -75,7 +95,14 @@ async function invokeResult<T>(command: string, args?: Record<string, unknown>) 
 // el clic-atraviesa sobre una ventana transparente la vuelve invisible.)
 /** Tamaño que debe tener la ventana según lo que haya abierto. */
 const targetSize = computed(() => {
-  if (!expanded.value) return COMPACT;
+  // Un aviso no abre la isla: la ensancha lo que pida su texto, conservando
+  // la altura de la píldora. Con la isla ya abierta no cambia nada, porque
+  // encogerla sería arrancarle el panel de las manos al usuario.
+  if (!expanded.value) {
+    return notice.value
+      ? { width: noticeWidth(notice.value.label), height: COMPACT.height }
+      : COMPACT;
+  }
   return lyricsOpen.value && lyricsAvailable.value ? WITH_LYRICS : EXPANDED;
 });
 
@@ -102,6 +129,12 @@ let shrinkTimer: number | undefined;
 watch(
   targetSize,
   (size, previous) => {
+    // El tamaño del aviso es un objeto nuevo en cada evaluación, así que el
+    // watch salta aunque las medidas no cambien: sin esta comparación por
+    // valor, actualizar el texto de un aviso redimensionaría la ventana al
+    // mismo tamaño que ya tenía, y ese `SetWindowPos` de más se ve parpadear.
+    if (previous && size.width === previous.width && size.height === previous.height) return;
+
     if (shrinkTimer !== undefined) window.clearTimeout(shrinkTimer);
 
     const growing = !previous || size.width >= previous.width;
@@ -159,6 +192,12 @@ async function toggleMute() {
 }
 
 function toggleIsland() {
+  // Con un aviso en pantalla, el primer toque lo descarta: abrir la isla
+  // encima dejaría el aviso tapado y la cola seguiría corriendo por detrás.
+  if (!expanded.value && notice.value) {
+    notifications.dismiss();
+    return;
+  }
   expanded.value = !expanded.value;
 }
 
@@ -243,6 +282,7 @@ function scrubTo(ratio: number) {
       </template>
     <TheIsland
       :mode="mode"
+      :notice="notice"
       :expanded="expanded"
       :playing="playing"
       :recording="false"

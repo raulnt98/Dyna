@@ -134,6 +134,18 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 .collapsed-time { color: #f4cb82; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 650; }
 .call-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(183,243,107,.7); }
 .collapsed-message { font-size: 10px; font-weight: 600; }
+
+/* --- Avisos --- */
+/* El aviso vive en la pildora compacta, asi que comparte su altura: solo
+   dispone de 34 px y el icono no puede crecer mas que el texto. */
+.notice-icon { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; }
+.notice-icon svg { width: 13px; height: 13px; }
+/* Verde de carga, el mismo que usa la llamada activa: es el color con el que
+   el resto de la isla dice «esto va bien». */
+.notice-power { background: rgba(183,243,107,.16); color: var(--green); }
+/* El texto acompana al icono: en ambar (heredado de .collapsed-time) el aviso
+   se lee como dos mensajes distintos en vez de uno. */
+.notice-label { white-space: nowrap; color: rgba(255,255,255,.92); font-weight: 600; }
 .music-top, .activity-top { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
 .media-details, .activity-top { min-width: 0; }
 .media-details { display: flex; align-items: center; gap: 11px; }

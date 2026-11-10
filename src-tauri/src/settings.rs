@@ -22,6 +22,8 @@ pub struct Settings {
     pub expand_on_hover: bool,
     pub hide_when_idle: bool,
     pub autostart: bool,
+    /// Avisar de sucesos del sistema, como conectar el cargador.
+    pub notifications: bool,
     /// Buscar letras sincronizadas en LRCLIB (envía título y artista).
     pub lyrics: bool,
     /// Segundos que saltan los botones de avance y retroceso.
@@ -38,6 +40,7 @@ impl Default for Settings {
             expand_on_hover: false,
             hide_when_idle: false,
             autostart: false,
+            notifications: true,
             lyrics: true,
             skip_seconds: 10.0,
         }

@@ -30,4 +30,6 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     # SetWindowPos: mueve y redimensiona la isla en una sola operación.
     "Win32_UI_WindowsAndMessaging",
+    # GetSystemPowerStatus: bateria y corriente, para el aviso del cargador.
+    "Win32_System_Power",
 ] }

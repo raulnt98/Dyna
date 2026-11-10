@@ -1,9 +1,11 @@
 mod lyrics;
+mod power;
 mod settings;
 mod smtc;
 mod volume;
 
 use settings::{Position, Settings};
+use power::POWER_EVENT;
 use smtc::{Command, MediaState, MEDIA_EVENT};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, WebviewWindow};
 
@@ -132,6 +134,15 @@ fn lyrics_current() -> lyrics::Lyrics {
         return lyrics::Lyrics::default();
     }
     lyrics::for_track(&state.title, &state.artist, &state.album, state.duration)
+}
+
+/// Estado actual de la batería y la corriente.
+///
+/// La isla lo pide al arrancar: el sondeo solo avisa de los cambios, así que
+/// sin esto no sabría si ya estaba enchufado.
+#[tauri::command]
+fn power_state() -> power::PowerState {
+    power::read_state()
 }
 
 /// Volumen maestro del sistema, de 0 a 100, y si está silenciado.
@@ -336,7 +347,8 @@ pub fn run() {
             volume_get,
             volume_set,
             volume_toggle_mute,
-            lyrics_current
+            lyrics_current,
+            power_state
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -390,6 +402,28 @@ pub fn run() {
                 }
             });
 
+            // Alimentación: Windows no ofrece un evento sencillo fuera del
+            // bucle de mensajes de una ventana, así que se sondea. Dos
+            // segundos bastan para un aviso de cargador y el coste es una
+            // llamada a `GetSystemPowerStatus`, sin COM ni asignaciones.
+            let power_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut last = power::read_state();
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(2000));
+                    let current = power::read_state();
+                    // Solo interesa enchufar o desenchufar. El porcentaje
+                    // cambia solo cada varios minutos y no justifica despertar
+                    // al frontend ni relanzar un aviso ya mostrado.
+                    // El ajuste se consulta aquí, en cada vuelta, y no al
+                    // montar el hilo: así desactivar los avisos surte efecto
+                    // en caliente, sin reiniciar la isla.
+                    if current.plugged != last.plugged && settings::current().notifications {
+                        let _ = power_handle.emit(POWER_EVENT, current.clone());
+                    }
+                    last = current;
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

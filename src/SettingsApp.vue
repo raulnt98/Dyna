@@ -21,6 +21,8 @@ interface Settings {
   hideWhenIdle: boolean;
   /** Arrancar junto con Windows. */
   autostart: boolean;
+  /** Avisar de sucesos del sistema, como conectar el cargador. */
+  notifications: boolean;
   /** Buscar letras sincronizadas en LRCLIB. */
   lyrics: boolean;
   /** Segundos que saltan los botones de avance y retroceso. */
@@ -34,6 +36,7 @@ const DEFAULTS: Settings = {
   expandOnHover: false,
   hideWhenIdle: false,
   autostart: false,
+  notifications: true,
   lyrics: true,
   skipSeconds: 10,
 };
@@ -167,6 +170,14 @@ function closeWindow() {
         <span>
           <strong>Iniciar con Windows</strong>
           <small>La isla se abre al encender el equipo.</small>
+        </span>
+      </label>
+
+      <label class="check">
+        <input v-model="settings.notifications" type="checkbox" />
+        <span>
+          <strong>Avisos del sistema</strong>
+          <small>La isla avisa al conectar o desconectar el cargador.</small>
         </span>
       </label>
 

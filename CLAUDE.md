@@ -64,11 +64,15 @@ error de compilación.
 | Ajustes | `settings_get`, `settings_set`, `settings_close` | `settings.rs` |
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
 | Letras | `lyrics_current` | `lyrics.rs` |
+| Alimentación | `power_state` | `power.rs` |
 
 Eventos que emite el backend:
 
 - `smtc://media-changed` — estado multimedia; lo escucha `src/lib/media.ts`.
 - `settings://changed` — ajustes nuevos; lo escucha `IslandApp.vue`.
+- `power://changed` — el cargador se conectó o se retiró; lo escucha
+  `src/lib/power.ts`. Solo se emite al cambiar el enchufe, no por el
+  porcentaje, y respeta el ajuste `notifications`.
 
 Las structs de Rust serializan en **camelCase** (`#[serde(rename_all =
 "camelCase")]`). Las interfaces de TypeScript que las reflejan —`MediaState` en
@@ -100,6 +104,26 @@ sobre una ventana transparente, lo que además de dejar pasar los clics impide
 que se dibuje. El comando `island_set_interactive` existe, pero la isla compacta
 mide 104 × 32 px y por eso no hace falta.
 
+**Los avisos no abren la isla, la ensanchan.** `src/lib/notifications.ts` es
+una cola: un aviso interrumpe la píldora compacta, vive unos segundos y se
+retira dejándola como estaba. Dos del mismo `kind` se reemplazan en el sitio en
+vez de encolarse —al enchufar y desenchufar seguido interesa el estado final—,
+y uno de otro tipo espera a que el visible cumpla su tiempo mínimo, porque
+relevarlo antes lo dejaría a medio dibujar. Con la isla ya expandida el aviso
+no la toca.
+
+El ancho sale de `noticeWidth()`, que lo **estima a partir del texto**: la
+ventana nativa se redimensiona desde Rust antes de que el CSS pinte, así que no
+se puede medir el elemento ya dibujado. `TheIsland.vue` llama a esa misma
+función para el `style` de la píldora; si cada uno usara su propio número, la
+píldora y su ventana se desincronizarían.
+
+Cuidado con el `watch` de `targetSize`: la rama del aviso devuelve un **objeto
+nuevo** en cada evaluación, mientras que las demás devuelven constantes
+compartidas. Por eso compara por valor antes de redimensionar — sin ello, un
+cambio de texto dispararía un `SetWindowPos` al mismo tamaño, que se ve
+parpadear.
+
 **La posición de SMTC se interpola.** `Position` se congela entre
 actualizaciones, que llegan como mucho una vez por segundo. El backend le suma
 el tiempo transcurrido desde `LastUpdatedTime` y sondea cada 250 ms. La carátula
@@ -122,6 +146,10 @@ tolerante.
 desactiva por completo; `lyrics_current` comprueba `settings::current().lyrics`
 antes de consultar. Cualquier función nueva que envíe datos fuera del equipo
 necesita su propio interruptor en los ajustes y una línea en el README.
+
+Los avisos del cargador no salen del equipo, pero siguen el mismo patrón de
+interruptor: el ajuste `notifications` se consulta **en cada vuelta** del
+sondeo, no al montar el hilo, para que desactivarlos surta efecto en caliente.
 
 ## Persistencia
 

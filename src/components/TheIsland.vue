@@ -8,6 +8,7 @@
 import {
   IconArrowDownToArc,
   IconBell,
+  IconBolt,
   IconClock,
   IconDots,
   IconMessage,
@@ -33,6 +34,7 @@ import {
 import { computed } from "vue";
 import { vAutoAnimate } from "@formkit/auto-animate/vue";
 import type { Activity } from "@/lib/activities";
+import { noticeWidth } from "@/lib/notifications";
 
 const props = defineProps<{
   mode: Activity;
@@ -58,10 +60,29 @@ const props = defineProps<{
   lyricsAvailable: boolean;
   lyricsOpen: boolean;
   lyricLines: { time: number; text: string; active: boolean }[];
+  /**
+   * Aviso que interrumpe lo que la isla muestre, o `null` si no hay ninguno.
+   *
+   * Solo afecta al estado compacto: un aviso no abre la isla, la ensancha.
+   */
+  notice?: { kind: string; label: string; data?: Record<string, unknown> } | null;
   /** Segundos que saltan los botones de avance y retroceso. */
   skipSeconds: number;
   formatTime: (seconds: number) => string;
 }>();
+
+/**
+ * Ancho de la píldora compacta.
+ *
+ * Expandida manda la clase de Tailwind; compacta el ancho depende del aviso y
+ * se calcula con la misma función que usa la ventana nativa, para que la
+ * píldora y su ventana no se desincronicen.
+ */
+const compactWidth = computed(() => {
+  if (props.expanded) return undefined;
+  const width = props.notice ? noticeWidth(props.notice.label) : 116;
+  return { width: `${width}px` };
+});
 
 /** Iconos de salto disponibles, por segundos. */
 const SKIP_ICONS = {
@@ -151,8 +172,9 @@ function onSeekKeydown(event: KeyboardEvent) {
       { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
       expanded
         ? 'w-[330px] h-[108px] rounded-[24px]'
-        : 'w-[116px] h-[34px] rounded-[18px]',
+        : 'h-[34px] rounded-[18px]',
     ]"
+    :style="compactWidth"
     role="button"
     tabindex="0"
     :aria-label="`Isla dinámica, ${expanded ? 'contraer' : 'expandir'}`"
@@ -169,7 +191,16 @@ function onSeekKeydown(event: KeyboardEvent) {
     ></div>
 
     <div v-if="!expanded" class="island-collapsed" aria-hidden="true">
-      <template v-if="mode === 'idle'">
+      <!-- Un aviso manda sobre el modo: interrumpe, se muestra unos segundos
+           y al retirarse la isla recupera lo que estaba enseñando. -->
+      <template v-if="notice">
+        <span class="notice-icon" :class="`notice-${notice.kind}`">
+          <IconBolt v-if="notice.kind === 'power'" />
+          <IconBell v-else />
+        </span>
+        <span class="collapsed-time notice-label">{{ notice.label }}</span>
+      </template>
+      <template v-else-if="mode === 'idle'">
         <span class="album-art idle-art"><IconDots /></span>
         <span class="waveform idle-wave"><i></i><i></i><i></i></span>
       </template>
