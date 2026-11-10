@@ -72,14 +72,23 @@ const props = defineProps<{
 }>();
 
 /**
- * Ancho de la píldora compacta.
+ * La isla se dibuja como píldora: cerrada, o abierta con un aviso encima.
  *
- * Expandida manda la clase de Tailwind; compacta el ancho depende del aviso y
- * se calcula con la misma función que usa la ventana nativa, para que la
- * píldora y su ventana no se desincronicen.
+ * Un aviso manda sobre el panel expandido, porque llega sin pedir permiso y
+ * debe verse. Se concentra aquí para que el tamaño, el contenido y las clases
+ * no puedan discrepar sobre qué se está mostrando.
+ */
+const showsPill = computed(() => !props.expanded || !!props.notice);
+
+/**
+ * Ancho de la píldora.
+ *
+ * Expandida y sin aviso manda la clase de Tailwind; en píldora el ancho se
+ * calcula con la misma función que usa la ventana nativa, para que la isla y
+ * su ventana no se desincronicen.
  */
 const compactWidth = computed(() => {
-  if (props.expanded) return undefined;
+  if (!showsPill.value) return undefined;
   const width = props.notice ? noticeWidth(props.notice.label) : 116;
   return { width: `${width}px` };
 });
@@ -167,12 +176,15 @@ function onSeekKeydown(event: KeyboardEvent) {
   <div
     :class="[
       'island island-morph',
-      { 'is-expanded': expanded, 'is-paused': !playing },
+      // `is-expanded` sigue a lo que se ve, no a `expanded`: con un aviso
+      // encima la isla es una píldora, y conservar la clase dejaría los
+      // estilos del panel y las muescas grandes sobre 34 px de alto.
+      { 'is-expanded': !showsPill, 'is-paused': !playing },
       `mode-${mode}`,
-      { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
-      expanded
-        ? 'w-[330px] h-[108px] rounded-[24px]'
-        : 'h-[34px] rounded-[18px]',
+      { 'has-lyrics': !showsPill && lyricsOpen && lyricsAvailable },
+      showsPill
+        ? 'h-[34px] rounded-[18px]'
+        : 'w-[330px] h-[108px] rounded-[24px]',
     ]"
     :style="compactWidth"
     role="button"
@@ -190,7 +202,7 @@ function onSeekKeydown(event: KeyboardEvent) {
       aria-hidden="true"
     ></div>
 
-    <div v-if="!expanded" class="island-collapsed" aria-hidden="true">
+    <div v-if="showsPill" class="island-collapsed" aria-hidden="true">
       <!-- Un aviso manda sobre el modo: interrumpe, se muestra unos segundos
            y al retirarse la isla recupera lo que estaba enseñando. -->
       <template v-if="notice">
