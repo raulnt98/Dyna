@@ -109,8 +109,16 @@ una cola: un aviso interrumpe la píldora compacta, vive unos segundos y se
 retira dejándola como estaba. Dos del mismo `kind` se reemplazan en el sitio en
 vez de encolarse —al enchufar y desenchufar seguido interesa el estado final—,
 y uno de otro tipo espera a que el visible cumpla su tiempo mínimo, porque
-relevarlo antes lo dejaría a medio dibujar. Con la isla ya expandida el aviso
-no la toca.
+relevarlo antes lo dejaría a medio dibujar.
+
+**Un aviso se dibuja de dos formas según el estado de la isla.** Cerrada,
+ensancha la píldora. Abierta, entra como **franja** (`.notice-strip`) sin
+cerrar el panel: el usuario lo abrió a propósito y puede estar usando el
+volumen o la barra de progreso. La franja va fuera de `.island-content`,
+porque ahí dentro `v-auto-animate` gestionaría su entrada y pelearía con su
+propia animación. Y **ocupa sitio en lugar de superponerse**: colocada encima
+tapaba justo la fila del título, y mover el contenido es preferible a
+ocultarlo; de eso se encarga la regla `.island:has(.notice-strip)`.
 
 El ancho sale de `noticeWidth()`, que lo **estima a partir del texto**: la
 ventana nativa se redimensiona desde Rust antes de que el CSS pinte, así que no

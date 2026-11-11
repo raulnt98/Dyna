@@ -72,13 +72,13 @@ const props = defineProps<{
 }>();
 
 /**
- * La isla se dibuja como píldora: cerrada, o abierta con un aviso encima.
+ * La isla se dibuja como píldora, en vez de como panel.
  *
- * Un aviso manda sobre el panel expandido, porque llega sin pedir permiso y
- * debe verse. Se concentra aquí para que el tamaño, el contenido y las clases
- * no puedan discrepar sobre qué se está mostrando.
+ * Un aviso no cierra el panel: abierto se muestra como franja dentro de él,
+ * porque el usuario lo abrió a propósito y puede estar usando el volumen o la
+ * barra de progreso justo cuando entra el aviso.
  */
-const showsPill = computed(() => !props.expanded || !!props.notice);
+const showsPill = computed(() => !props.expanded);
 
 /**
  * Ancho de la píldora.
@@ -176,12 +176,9 @@ function onSeekKeydown(event: KeyboardEvent) {
   <div
     :class="[
       'island island-morph',
-      // `is-expanded` sigue a lo que se ve, no a `expanded`: con un aviso
-      // encima la isla es una píldora, y conservar la clase dejaría los
-      // estilos del panel y las muescas grandes sobre 34 px de alto.
-      { 'is-expanded': !showsPill, 'is-paused': !playing },
+      { 'is-expanded': expanded, 'is-paused': !playing },
       `mode-${mode}`,
-      { 'has-lyrics': !showsPill && lyricsOpen && lyricsAvailable },
+      { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
       showsPill
         ? 'h-[34px] rounded-[18px]'
         : 'w-[330px] h-[108px] rounded-[24px]',
@@ -249,7 +246,24 @@ function onSeekKeydown(event: KeyboardEvent) {
       </template>
     </div>
   
-    <div v-else v-auto-animate class="island-content">
+    <!-- El aviso no cierra el panel: entra como franja sobre él y se retira
+         sola, dejando intacto lo que el usuario estuviera haciendo.
+         Va fuera de `.island-content` a propósito: ahí dentro `v-auto-animate`
+         gestionaría su entrada y pelearía con la animación propia. -->
+    <div
+      v-if="expanded && notice"
+      class="notice-strip"
+      :class="`notice-${notice.kind}`"
+      aria-hidden="true"
+    >
+      <span class="notice-strip-icon">
+        <IconBolt v-if="notice.kind === 'power'" />
+        <IconBell v-else />
+      </span>
+      <span class="notice-strip-label">{{ notice.label }}</span>
+    </div>
+
+    <div v-if="!showsPill" v-auto-animate class="island-content">
       <template v-if="mode === 'idle'">
         <div class="activity-top">
           <span class="idle-avatar"><IconDots /></span>

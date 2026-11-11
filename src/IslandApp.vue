@@ -95,14 +95,14 @@ async function invokeResult<T>(command: string, args?: Record<string, unknown>) 
 // el clic-atraviesa sobre una ventana transparente la vuelve invisible.)
 /** Tamaño que debe tener la ventana según lo que haya abierto. */
 const targetSize = computed(() => {
-  // Un aviso manda sobre todo lo demás: la isla adopta el alto compacto y el
-  // ancho que pida su texto, venga de donde venga. Dejarlo para cuando la
-  // isla esté cerrada lo haría desaparecer sin más si estaba abierta, que es
-  // justo lo contrario de lo que se espera de un aviso.
-  if (notice.value) {
-    return { width: noticeWidth(notice.value.label), height: COMPACT.height };
+  // Cerrada, el aviso ensancha la píldora lo que pida su texto. Abierta no
+  // cambia el tamaño: el aviso se dibuja como franja dentro del panel, que
+  // el usuario abrió a propósito y puede estar usando.
+  if (!expanded.value) {
+    return notice.value
+      ? { width: noticeWidth(notice.value.label), height: COMPACT.height }
+      : COMPACT;
   }
-  if (!expanded.value) return COMPACT;
   return lyricsOpen.value && lyricsAvailable.value ? WITH_LYRICS : EXPANDED;
 });
 
