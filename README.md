@@ -1,9 +1,10 @@
 # Dynamic Island para Windows
 
-Demo web de una isla dinámica para escritorio, construida con Vue 3 y preparada
-para ejecutarse dentro de una aplicación de escritorio con Tauri 2. La interfaz
-simula un escritorio Windows e incluye actividades interactivas, controles y
-transiciones.
+Una isla dinámica para el escritorio de Windows, construida con Vue 3 y Tauri 2.
+Cuelga del borde superior de la pantalla, por encima del resto de ventanas, y
+muestra lo que suena en el sistema, letras sincronizadas, avisos del equipo y
+notificaciones de otras aplicaciones. El repositorio incluye también una demo
+web que simula un escritorio Windows con todas las actividades.
 
 > **Estado del proyecto:** la aplicación de escritorio funciona como isla
 > flotante real: ventana transparente y sin bordes, anclada al borde superior y
@@ -12,8 +13,25 @@ transiciones.
 > [panel de ajustes](#panel-de-ajustes). La demo web del navegador se mantiene
 > como vista previa interactiva.
 
+## Descarga
+
+La última versión está en [**Releases**](https://github.com/raulnt98/Dyna/releases/latest):
+descarga `Dynamic.Island_<versión>_x64-setup.exe` y ejecútalo.
+
+- Se instala **solo para tu usuario**, sin permisos de administrador.
+- Requiere Windows 10 u 11 (64 bits) con WebView2, que ya viene en Windows 11.
+- **El instalador no está firmado**, así que Windows mostrará «SmartScreen
+  protegió su PC». Pulsa **Más información** y luego **Ejecutar de todas
+  formas**. Con *Smart App Control* activado, Windows puede bloquearlo del todo.
+- Cada release incluye la suma SHA-256 del instalador para comprobar la descarga.
+
+Para compilarlo tú mismo, mira [Aplicación de escritorio con
+Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
+instalador en `src-tauri/target/release/bundle/nsis/`.
+
 ## Contenido
 
+- [Descarga](#descarga)
 - [Requisitos](#requisitos)
 - [Instalación y ejecución](#instalación-y-ejecución)
 - [Tecnologías](#tecnologías)
