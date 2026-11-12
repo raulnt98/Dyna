@@ -6,6 +6,7 @@
  * sistema, de modo que sigue siendo accesible con la isla en segundo plano.
  */
 import { computed, onMounted, ref, watch } from "vue";
+import SettingsSelect from "@/components/SettingsSelect.vue";
 
 /** Ajustes que se guardan entre sesiones. */
 interface Settings {
@@ -15,6 +16,8 @@ interface Settings {
   topMargin: number;
   /** Mantener la isla por encima del resto de ventanas. */
   alwaysOnTop: boolean;
+  /** Aspecto de la isla cerrada: píldora o pestaña mínima. */
+  collapsedStyle: "pill" | "tab";
   /** Arrancar junto con Windows. */
   autostart: boolean;
   /** Interruptor general de los avisos del sistema. */
@@ -40,6 +43,7 @@ const DEFAULTS: Settings = {
   // 0, igual que en Rust: la isla cuelga del borde y su forma lo da por hecho.
   topMargin: 0,
   alwaysOnTop: true,
+  collapsedStyle: "pill",
   autostart: false,
   notifications: true,
   notifyCharger: true,
@@ -136,11 +140,15 @@ function closeWindow() {
       <div class="panel">
         <div class="row">
           <label class="text" for="pos"><span class="name">Alineación horizontal</span></label>
-          <select id="pos" v-model="settings.position">
-            <option value="left">Izquierda</option>
-            <option value="center">Centro</option>
-            <option value="right">Derecha</option>
-          </select>
+          <SettingsSelect
+            id="pos"
+            v-model="settings.position"
+            :options="[
+              { value: 'left', label: 'Izquierda' },
+              { value: 'center', label: 'Centro' },
+              { value: 'right', label: 'Derecha' },
+            ]"
+          />
         </div>
 
         <div class="row">
@@ -164,6 +172,21 @@ function closeWindow() {
     <section class="section">
       <h2>Comportamiento</h2>
       <div class="panel">
+        <div class="row">
+          <label class="text" for="collapsed">
+            <span class="name">Vista minimizada</span>
+            <span class="desc">Cómo se ve la isla cerrada. La pestaña casi no tapa lo que hay debajo.</span>
+          </label>
+          <SettingsSelect
+            id="collapsed"
+            v-model="settings.collapsedStyle"
+            :options="[
+              { value: 'pill', label: 'Píldora' },
+              { value: 'tab', label: 'Pestaña mínima' },
+            ]"
+          />
+        </div>
+
         <label class="row">
           <span class="text">
             <span class="name">Siempre visible</span>
@@ -190,12 +213,16 @@ function closeWindow() {
             <span class="name">Salto de los botones</span>
             <span class="desc">Apple Music ignora esta función.</span>
           </label>
-          <select id="skip" v-model.number="settings.skipSeconds">
-            <option :value="5">5 segundos</option>
-            <option :value="10">10 segundos</option>
-            <option :value="15">15 segundos</option>
-            <option :value="30">30 segundos</option>
-          </select>
+          <SettingsSelect
+            id="skip"
+            v-model="settings.skipSeconds"
+            :options="[
+              { value: 5, label: '5 segundos' },
+              { value: 10, label: '10 segundos' },
+              { value: 15, label: '15 segundos' },
+              { value: 30, label: '30 segundos' },
+            ]"
+          />
         </div>
 
         <label class="row">
@@ -308,7 +335,6 @@ function closeWindow() {
   --bg: #0d0f16;
   --panel: rgba(255, 255, 255, 0.028);
   --line: rgba(255, 255, 255, 0.07);
-  --control: #1a1d27;
   --text: #ececf1;
   --muted: #7f8292;
   --accent: #b7f36b;
@@ -518,28 +544,9 @@ label.row {
 }
 
 .switch:focus-visible,
-select:focus-visible,
 input[type="range"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-select {
-  padding: 6px 28px 6px 10px;
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--control)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%237f8292' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E")
-    no-repeat right 10px center;
-  font: inherit;
-  cursor: pointer;
-  appearance: none;
-  transition: border-color 0.15s;
-}
-
-select:hover {
-  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .slider {
@@ -606,8 +613,7 @@ input[type="range"]::-webkit-slider-thumb {
 @media (prefers-reduced-motion: reduce) {
   .switch,
   .switch::after,
-  .saved,
-  select {
+  .saved {
     transition-duration: 0.01ms;
   }
 }

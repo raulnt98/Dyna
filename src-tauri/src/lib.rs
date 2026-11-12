@@ -49,14 +49,23 @@ struct Shape {
 
 impl Shape {
     /// Forma de reposo para un tamaño de isla. La altura distingue el estado:
-    /// la compacta mide 34 px y cualquier panel pasa de 100.
+    /// la pestaña mínima mide 8 px, la píldora compacta 34 y cualquier panel
+    /// pasa de 40. Las medidas de muesca y radio replican las del CSS
+    /// (`--notch` en IslandApp.vue y los `rounded-[…]` de TheIsland.vue).
     fn for_size(width: f64, height: f64) -> Shape {
-        let expanded = height > 40.0;
+        let (notch, radius) = if height > 40.0 {
+            (22.0, 24.0)
+        } else if height > 12.0 {
+            (14.0, 18.0)
+        } else {
+            // Pestaña: una muesca de 14 px colgaría por debajo de ella.
+            (5.0, 4.0)
+        };
         Shape {
             width,
             height,
-            notch: if expanded { 22.0 } else { 14.0 },
-            radius: if expanded { 24.0 } else { 18.0 },
+            notch,
+            radius,
         }
     }
 

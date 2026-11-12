@@ -168,6 +168,7 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
 │   │   └── systemEvents.ts            # Volumen, batería baja y notificaciones de apps
 │   └── components/
 │       ├── TheIsland.vue              # La píldora, compartida por demo e isla real
+│       ├── SettingsSelect.vue         # Desplegable propio del panel de ajustes
 │       └── ui/
 │           ├── button/                # Botón local con variantes
 │           ├── popover/               # Exportaciones de primitivas Reka UI
@@ -411,6 +412,7 @@ confirmación.
 | Alineación horizontal | Coloca la isla a la izquierda, centrada o a la derecha. |
 | Separación superior | Distancia al borde superior de la pantalla, de 0 a 120 px. |
 | Siempre visible | Mantiene o no la isla por encima de otras ventanas. |
+| Vista minimizada | Cómo se ve la isla cerrada: **píldora** (la de siempre) o **pestaña mínima**, una leve lengüeta de 48 × 8 px pegada al borde que casi no tapa las pestañas del navegador. Un clic la abre y otro la cierra. Los avisos siguen apareciendo igual. |
 | Iniciar con Windows | Registra la app en el arranque del usuario actual. |
 | Letras sincronizadas | Busca la letra en LRCLIB. Al desactivarlo, no sale ninguna consulta del equipo. |
 | Salto de los botones | Segundos que avanzan o retroceden los botones: 5, 10, 15 o 30. |

@@ -18,6 +18,8 @@ import type { Activity } from "@/lib/activities";
 
 /** Tamaños de la isla, en sincronía con las clases de TheIsland.vue. */
 const COMPACT = { width: 116, height: 34 };
+/** Pestaña mínima de la vista minimizada alternativa. Su alto (8 px) lo usa Rust para elegir la muesca. */
+const TAB = { width: 48, height: 8 };
 const EXPANDED = { width: 330, height: 108 };
 /** Notificación de otra aplicación: más alta que la compacta, sin llegar al panel. */
 const TOAST = { width: 340, height: 60 };
@@ -29,6 +31,9 @@ const expanded = ref(false);
 /** Lado de la pantalla al que se pega la isla, según los ajustes. */
 type Alignment = "left" | "center" | "right";
 const alignment = ref<Alignment>("center");
+/** Aspecto de la isla cerrada, según los ajustes: píldora o pestaña mínima. */
+type CollapsedStyle = "pill" | "tab";
+const collapsedStyle = ref<CollapsedStyle>("pill");
 const media = useSystemMedia();
 
 /** Cola de avisos: interrumpen la píldora compacta y se retiran solos. */
@@ -161,7 +166,9 @@ const targetSize = computed(() => {
     if (notice.value?.data?.tall) return TOAST;
     return notice.value
       ? { width: noticeWidth(notice.value.label), height: COMPACT.height }
-      : COMPACT;
+      : collapsedStyle.value === "tab"
+        ? TAB
+        : COMPACT;
   }
   return lyricsOpen.value && lyricsAvailable.value ? WITH_LYRICS : EXPANDED;
 });
@@ -274,9 +281,14 @@ function handleIslandKeydown(event: KeyboardEvent) {
 const skipSeconds = ref(10);
 
 onMounted(async () => {
-  const stored = await invokeResult<{ skipSeconds?: number; position?: Alignment }>("settings_get");
+  const stored = await invokeResult<{
+    skipSeconds?: number;
+    position?: Alignment;
+    collapsedStyle?: CollapsedStyle;
+  }>("settings_get");
   if (stored?.skipSeconds) skipSeconds.value = stored.skipSeconds;
   if (stored?.position) alignment.value = stored.position;
+  if (stored?.collapsedStyle) collapsedStyle.value = stored.collapsedStyle;
 
   // El primer intento de redimensionar ocurre antes de que la API de Tauri
   // esté cargada, así que se repite aquí ya con el módulo disponible.
@@ -286,9 +298,14 @@ onMounted(async () => {
   // Los ajustes pueden cambiar mientras la isla está abierta.
   try {
     const { listen } = await import("@tauri-apps/api/event");
-    await listen<{ skipSeconds?: number; position?: Alignment }>("settings://changed", (event) => {
+    await listen<{
+      skipSeconds?: number;
+      position?: Alignment;
+      collapsedStyle?: CollapsedStyle;
+    }>("settings://changed", (event) => {
       if (event.payload?.skipSeconds) skipSeconds.value = event.payload.skipSeconds;
       if (event.payload?.position) alignment.value = event.payload.position;
+      if (event.payload?.collapsedStyle) collapsedStyle.value = event.payload.collapsedStyle;
     });
   } catch {
     // Fuera de Tauri no hay eventos que escuchar.
@@ -341,6 +358,7 @@ function scrubTo(ratio: number) {
     <TheIsland
       :mode="mode"
       :notice="notice"
+      :collapsed-style="collapsedStyle"
       :expanded="expanded"
       :playing="playing"
       :recording="false"
@@ -581,6 +599,22 @@ body,
   --notch: 22px;
   --island-width: 330px;
   --island-height: 108px;
+}
+
+/* Pestaña mínima: la muesca se reduce a 5 px, porque una de 14 px colgaría por
+   debajo de una isla de 8 px de alto. Misma medida que `Shape::for_size` en
+   lib.rs; si cambias una, cambia la otra. */
+.island-wrap:has(.island.is-tab) {
+  --notch: 5px;
+  --island-width: 48px;
+  --island-height: 8px;
+}
+
+/* La sombra grande de la isla sobraría en una pestaña de 8 px: se sustituye
+   por un filo claro en el borde inferior, para que se distinga también sobre
+   ventanas oscuras. */
+.island-stage .island.is-tab {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), inset 0 -1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /* Con el panel de karaoke la píldora se alarga a 540 px; sin esto el tinte

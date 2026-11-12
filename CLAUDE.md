@@ -126,6 +126,12 @@ si cambias una, cambia la otra. Los ajustes de uno o dos píxeles de
 `set_island_region` evitan puntos y líneas claras en las muescas; no los
 simplifiques sin probar a la vista.
 
+**La vista minimizada tiene dos estilos** (`collapsedStyle`: píldora o pestaña).
+La pestaña mide 48 × 8 px y `Shape::for_size` elige la forma por la altura
+(≤ 12 px pestaña, ≤ 40 píldora, más es panel). La pestaña usa una muesca de 5 px
+y no la de 14, que colgaría por debajo de ella: esa medida está también en
+`.island-wrap:has(.island.is-tab)` de `IslandApp.vue`, y las dos deben coincidir.
+
 El contenido entra solo con opacidad: un `translateY` se percibe como un salto
 sobre una píldora que ya se redimensiona.
 

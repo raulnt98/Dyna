@@ -12,6 +12,17 @@ pub enum Position {
     Right,
 }
 
+/// Cómo se ve la isla cuando está cerrada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CollapsedStyle {
+    /// La píldora compacta, con carátula y ondas.
+    #[default]
+    Pill,
+    /// Una pestaña mínima pegada al borde: casi no tapa nada de lo que hay debajo.
+    Tab,
+}
+
 /// Una aplicación detectada y si el usuario quiere ver sus notificaciones.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +39,8 @@ pub struct Settings {
     pub position: Position,
     pub top_margin: f64,
     pub always_on_top: bool,
+    /// Aspecto de la isla cerrada: píldora o pestaña mínima.
+    pub collapsed_style: CollapsedStyle,
     pub autostart: bool,
     /// Avisar de sucesos del sistema, como conectar el cargador.
     pub notifications: bool,
@@ -59,6 +72,7 @@ impl Default for Settings {
             // La isla cuelga del borde superior: por defecto no se despega.
             top_margin: 0.0,
             always_on_top: true,
+            collapsed_style: CollapsedStyle::Pill,
             autostart: false,
             notifications: true,
             notify_charger: true,

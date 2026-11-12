@@ -67,6 +67,12 @@ const props = defineProps<{
    * Solo afecta al estado compacto: un aviso no abre la isla, la ensancha.
    */
   notice?: { kind: string; label: string; data?: Record<string, unknown> } | null;
+  /**
+   * Aspecto de la isla cerrada: la píldora de siempre o una pestaña mínima
+   * pegada al borde, que apenas tapa lo que haya debajo. Un aviso sigue
+   * ensanchando la píldora aunque se haya elegido la pestaña.
+   */
+  collapsedStyle?: "pill" | "tab";
   /** Segundos que saltan los botones de avance y retroceso. */
   skipSeconds: number;
   formatTime: (seconds: number) => string;
@@ -91,6 +97,14 @@ const showsPill = computed(() => !props.expanded);
  * altura) encajan sin código nuevo.
  */
 const showsCharge = computed(() => !props.expanded && props.notice?.data?.large === true);
+/**
+ * Pestaña mínima: la isla cerrada, sin ningún aviso en curso, con ese estilo
+ * elegido. 48 × 8 px, en sincronía con `TAB` de IslandApp.vue y con la forma
+ * que Rust recorta para alturas de ese orden.
+ */
+const showsTab = computed(
+  () => !props.expanded && !props.notice && props.collapsedStyle === "tab",
+);
 const chargePercent = computed(() => Number(props.notice?.data?.percent ?? 0));
 
 /**
@@ -113,7 +127,7 @@ const toastInitial = computed(() => toastApp.value.trim().charAt(0).toUpperCase(
  * su ventana no se desincronicen.
  */
 const compactWidth = computed(() => {
-  if (!showsPill.value || showsCharge.value || showsToast.value) return undefined;
+  if (!showsPill.value || showsCharge.value || showsToast.value || showsTab.value) return undefined;
   const width = props.notice ? noticeWidth(props.notice.label) : 116;
   return { width: `${width}px` };
 });
@@ -205,20 +219,24 @@ function onSeekKeydown(event: KeyboardEvent) {
         'is-expanded': expanded || showsCharge || showsToast,
         'is-charge': showsCharge,
         'is-toast': showsToast,
+        'is-tab': showsTab,
         'is-paused': !playing,
       },
       `mode-${mode}`,
       { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
       showsToast
         ? 'w-[340px] h-[60px] rounded-[24px]'
-        : showsPill && !showsCharge
-          ? 'h-[34px] rounded-[18px]'
-          : 'w-[330px] h-[108px] rounded-[24px]',
+        : showsTab
+          ? 'w-[48px] h-[8px] rounded-[4px]'
+          : showsPill && !showsCharge
+            ? 'h-[34px] rounded-[18px]'
+            : 'w-[330px] h-[108px] rounded-[24px]',
     ]"
     :style="compactWidth"
     role="button"
     tabindex="0"
     :aria-label="`Isla dinámica, ${expanded ? 'contraer' : 'expandir'}`"
+    :title="showsTab ? 'Abrir la isla' : undefined"
     :aria-expanded="expanded"
     @click="handleIslandClick"
     @keydown="handleIslandKeydown"
@@ -263,7 +281,7 @@ function onSeekKeydown(event: KeyboardEvent) {
       </span>
     </div>
 
-    <div v-if="showsPill && !showsCharge && !showsToast" class="island-collapsed" aria-hidden="true">
+    <div v-if="showsPill && !showsCharge && !showsToast && !showsTab" class="island-collapsed" aria-hidden="true">
       <!-- Un aviso manda sobre el modo: interrumpe, se muestra unos segundos
            y al retirarse la isla recupera lo que estaba enseñando. -->
       <template v-if="notice">
