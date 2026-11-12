@@ -15,10 +15,6 @@ interface Settings {
   topMargin: number;
   /** Mantener la isla por encima del resto de ventanas. */
   alwaysOnTop: boolean;
-  /** Expandir la isla al pasar el ratón, sin hacer clic. */
-  expandOnHover: boolean;
-  /** Ocultar la isla cuando no hay nada reproduciéndose. */
-  hideWhenIdle: boolean;
   /** Arrancar junto con Windows. */
   autostart: boolean;
   /** Interruptor general de los avisos del sistema. */
@@ -44,8 +40,6 @@ const DEFAULTS: Settings = {
   // 0, igual que en Rust: la isla cuelga del borde y su forma lo da por hecho.
   topMargin: 0,
   alwaysOnTop: true,
-  expandOnHover: false,
-  hideWhenIdle: false,
   autostart: false,
   notifications: true,
   notifyCharger: true,
@@ -176,22 +170,6 @@ function closeWindow() {
             <span class="desc">Mantiene la isla por encima de otras ventanas.</span>
           </span>
           <input v-model="settings.alwaysOnTop" class="switch" type="checkbox" />
-        </label>
-
-        <label class="row">
-          <span class="text">
-            <span class="name">Expandir al pasar el ratón</span>
-            <span class="desc">Sin necesidad de hacer clic en la isla.</span>
-          </span>
-          <input v-model="settings.expandOnHover" class="switch" type="checkbox" />
-        </label>
-
-        <label class="row">
-          <span class="text">
-            <span class="name">Ocultar sin reproducción</span>
-            <span class="desc">La isla desaparece cuando no suena nada.</span>
-          </span>
-          <input v-model="settings.hideWhenIdle" class="switch" type="checkbox" />
         </label>
 
         <label class="row">

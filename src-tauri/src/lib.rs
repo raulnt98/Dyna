@@ -477,7 +477,7 @@ fn settings_set(app: tauri::AppHandle, settings: Settings) {
         // Se reposiciona con el tamaño de isla que tenía.
         let (width, height) = ISLAND_SIZE.lock().map(|size| *size).unwrap_or((116.0, 34.0));
         place_island(&island, width, height);
-        // La isla necesita saber los ajustes para el hover y el modo oculto.
+        // La isla necesita saber los ajustes (alineación, salto de los botones).
         let _ = island.emit("settings://changed", &settings);
     }
 }
@@ -514,30 +514,6 @@ fn open_settings(app: &tauri::AppHandle) {
     .max_inner_size(440.0, 640.0)
     .center()
     .build();
-}
-
-/// Indica si el cursor está sobre la ventana de la isla.
-///
-/// Cuando la ventana ignora el ratón no recibe eventos de hover, así que el
-/// frontend consulta la posición del cursor para saber cuándo reaccionar.
-#[tauri::command]
-fn island_cursor_over(window: WebviewWindow) -> bool {
-    let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
-        return false;
-    };
-    let Ok(cursor) = window.cursor_position() else {
-        return false;
-    };
-
-    // Solo la franja central interesa: es donde se dibuja la isla, no el
-    // margen transparente que la rodea.
-    let padding = WINDOW_PADDING * window.scale_factor().unwrap_or(1.0);
-    let left = pos.x as f64 + padding;
-    let right = pos.x as f64 + size.width as f64 - padding;
-    let top = pos.y as f64 + padding;
-    let bottom = pos.y as f64 + size.height as f64 - padding;
-
-    cursor.x >= left && cursor.x <= right && cursor.y >= top && cursor.y <= bottom
 }
 
 /// Devuelve el estado multimedia actual del sistema.
@@ -630,7 +606,6 @@ pub fn run() {
             media_seek,
             island_resize,
             island_set_interactive,
-            island_cursor_over,
             settings_get,
             settings_set,
             settings_close,

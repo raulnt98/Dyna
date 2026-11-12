@@ -28,8 +28,6 @@ pub struct Settings {
     pub position: Position,
     pub top_margin: f64,
     pub always_on_top: bool,
-    pub expand_on_hover: bool,
-    pub hide_when_idle: bool,
     pub autostart: bool,
     /// Avisar de sucesos del sistema, como conectar el cargador.
     pub notifications: bool,
@@ -61,8 +59,6 @@ impl Default for Settings {
             // La isla cuelga del borde superior: por defecto no se despega.
             top_margin: 0.0,
             always_on_top: true,
-            expand_on_hover: false,
-            hide_when_idle: false,
             autostart: false,
             notifications: true,
             notify_charger: true,

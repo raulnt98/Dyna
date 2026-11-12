@@ -393,8 +393,6 @@ confirmación.
 | Alineación horizontal | Coloca la isla a la izquierda, centrada o a la derecha. |
 | Separación superior | Distancia al borde superior de la pantalla, de 0 a 120 px. |
 | Siempre visible | Mantiene o no la isla por encima de otras ventanas. |
-| Expandir al pasar el ratón | Abre la isla sin hacer clic. |
-| Ocultar sin reproducción | La isla desaparece cuando no suena nada. |
 | Iniciar con Windows | Registra la app en el arranque del usuario actual. |
 | Letras sincronizadas | Busca la letra en LRCLIB. Al desactivarlo, no sale ninguna consulta del equipo. |
 | Salto de los botones | Segundos que avanzan o retroceden los botones: 5, 10, 15 o 30. |

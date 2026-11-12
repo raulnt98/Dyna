@@ -60,7 +60,7 @@ error de compilación.
 | Grupo | Comandos | Módulo Rust |
 | --- | --- | --- |
 | Multimedia | `media_state`, `media_play_pause`, `media_next`, `media_previous`, `media_seek` | `smtc.rs` |
-| Ventana | `island_resize`, `island_set_interactive`, `island_cursor_over` | `lib.rs` |
+| Ventana | `island_resize`, `island_set_interactive` | `lib.rs` |
 | Ajustes | `settings_get`, `settings_set`, `settings_close` | `settings.rs` |
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
 | Letras | `lyrics_current` | `lyrics.rs` |
