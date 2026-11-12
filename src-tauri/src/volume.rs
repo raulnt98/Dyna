@@ -19,7 +19,6 @@ pub struct VolumeState {
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use windows::core::Interface;
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
     use windows::Win32::System::Com::{

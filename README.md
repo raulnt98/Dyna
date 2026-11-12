@@ -120,26 +120,40 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
 
 ```text
 .
-├── index.html                         # Entrada HTML de Vite
+├── index.html                         # Demo web (monta App.vue)
+├── island.html                        # La isla real de la ventana principal de Tauri
+├── settings.html                      # Panel de ajustes, en su propia ventana
 ├── package.json                       # Scripts y dependencias npm
-├── vite.config.ts                     # Plugins de Vue/Tailwind, alias y puerto
+├── vite.config.ts                     # Plugins de Vue/Tailwind, alias, puerto y entradas
 ├── tsconfig.json                      # Referencias de TypeScript
 ├── tsconfig.app.json                  # Opciones de TypeScript para la aplicación
 ├── tsconfig.node.json                 # Opciones de TypeScript para Vite
 ├── components.json                    # Configuración de shadcn-vue
 ├── public/
-│   └── island.svg                     # Favicon de la demo
+│   └── logo.png                       # Logo y favicon
 ├── src/
-│   ├── main.ts                        # Montaje de Vue y estilos globales
-│   ├── App.vue                        # Interfaz, estados y comportamiento
-│   ├── style.css                      # Tailwind y estilos de la experiencia
+│   ├── main.ts                        # Entrada de la demo web
+│   ├── island.ts                      # Entrada de la isla real
+│   ├── settings.ts                    # Entrada del panel de ajustes
+│   ├── App.vue                        # Demo: escritorio simulado y actividades
+│   ├── IslandApp.vue                  # La isla real: tamaño, avisos y letras
+│   ├── SettingsApp.vue                # Panel de ajustes
+│   ├── style.css                      # Tailwind y estilos de la isla
 │   ├── lib/
 │   │   ├── utils.ts                   # Utilidad cn() para clases
-│   │   └── media.ts                   # Puente con la música del sistema (SMTC)
-│   └── components/ui/
-│       ├── button/                    # Botón local con variantes
-│       ├── popover/                   # Exportaciones de primitivas Reka UI
-│       └── toggle-group/              # Exportaciones de primitivas Reka UI
+│   │   ├── activities.ts              # Actividades de la demo
+│   │   ├── media.ts                   # Puente con la música del sistema (SMTC)
+│   │   ├── lyrics.ts                  # Letras sincronizadas y línea activa
+│   │   ├── clock.ts                   # Reloj local suave para la letra
+│   │   ├── notifications.ts           # Cola de avisos de la isla
+│   │   ├── power.ts                   # Estado del cargador
+│   │   └── systemEvents.ts            # Volumen, batería baja y notificaciones de apps
+│   └── components/
+│       ├── TheIsland.vue              # La píldora, compartida por demo e isla real
+│       └── ui/
+│           ├── button/                # Botón local con variantes
+│           ├── popover/               # Exportaciones de primitivas Reka UI
+│           └── toggle-group/          # Exportaciones de primitivas Reka UI
 └── src-tauri/
     ├── Cargo.toml                     # Paquete y dependencias Rust
     ├── build.rs                       # Integración de tauri-build
@@ -147,8 +161,13 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
     ├── capabilities/
     │   └── default.json               # Permisos de la ventana principal
     └── src/
-        ├── lib.rs                     # Builder, comandos y eventos multimedia
+        ├── lib.rs                     # Builder, comandos, ventana recortada y sondeos
         ├── smtc.rs                    # Lectura y control de SMTC en Windows
+        ├── volume.rs                  # Volumen maestro (Core Audio)
+        ├── power.rs                   # Batería y corriente
+        ├── lyrics.rs                  # Letras desde LRCLIB
+        ├── toasts.rs                  # Notificaciones de otras aplicaciones
+        ├── settings.rs                # Ajustes y persistencia
         └── main.rs                    # Entrada de la aplicación Windows
 ```
 

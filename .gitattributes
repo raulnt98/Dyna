@@ -1,0 +1,6 @@
+# Normaliza los saltos de linea: en Windows git los convertiria a CRLF al vuelo y
+# llenaria el diff de avisos y cambios falsos.
+* text=auto
+*.png binary
+*.ico binary
+*.icns binary
