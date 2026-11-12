@@ -495,5 +495,11 @@ La referencia de interacción para los estados de actividad es
 puede usar y modificar tanto en proyectos personales como comerciales, con
 atribución requerida. La demo conserva un enlace de atribución visible.
 
+## Licencia
+
+[MIT](LICENSE). Se puede usar, copiar y modificar, también con fines
+comerciales, conservando el aviso de copyright. La atribución a Skiper UI de la
+sección anterior se mantiene aparte.
+
 [skiper]: https://skiper-ui.com/v1/skiper2
 [tauri-prereq]: https://v2.tauri.app/start/prerequisites/#windows
