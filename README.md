@@ -339,7 +339,10 @@ integrarse con cada uno por separado.
 - Los botones de reproducir/pausar, pista anterior y siguiente controlan el
   reproductor real.
 - Al hacer clic en la barra de progreso, salta a esa posición de la pista.
-- Si cambias de reproductor, la isla sigue a la nueva sesión activa.
+- Muestra y controla la sesión que **está sonando**. La sesión «actual» de
+  Windows es la última con la que interactuaste, y no tiene por qué ser la que
+  suena: con Spotify en pausa y YouTube Music reproduciendo, la isla sigue a
+  YouTube Music.
 - Sin ninguna reproducción en curso, muestra «Sin reproducción».
 
 ### Cómo está implementado
@@ -361,7 +364,8 @@ actualizaciones, que llegan como mucho una vez por segundo: leyéndola tal cual,
 la letra de karaoke avanza a tirones y hasta un segundo por detrás. El backend
 le suma el tiempo transcurrido desde `LastUpdatedTime` y sondea cada 250 ms,
 de modo que la posición avanza de forma continua. La carátula está cacheada por
-pista, así que ese sondeo más frecuente no la redecodifica.
+pista, así que ese sondeo más frecuente no la redecodifica (salvo al empezar la
+pista, ver [YouTube Music](#youtube-music-y-otros-reproductores-web)).
 
 La carátula llega como stream de WinRT y se envía al frontend ya codificada en
 un data URI, de modo que no hace falta escribir archivos temporales ni
@@ -375,6 +379,23 @@ backend devuelve `false` y la reproducción sigue intacta.
 La dependencia de Windows está declarada bajo `[target."cfg(windows)"]`, y
 `smtc.rs` incluye una implementación vacía para otras plataformas, de modo que
 el proyecto sigue compilando fuera de Windows.
+
+### YouTube Music y otros reproductores web
+
+Los reproductores web —YouTube Music, ya sea en el navegador o instalado como
+aplicación (PWA)— publican sus datos a su manera, y la isla lo compensa:
+
+- **Título y artista limpios.** YouTube Music informa al artista como
+  `Nombre - Topic` o `NombreVEVO`, y los títulos llevan `(Official Video)`,
+  `[Lyrics]` o `[HD]`, a veces con el artista repetido delante. Se quita solo lo
+  que es adorno: `(Live)`, `(feat. Ana)`, `(Remix)` o `(Remastered 2011)` se
+  conservan. La letra se busca con el texto limpio, así que LRCLIB encuentra
+  más canciones.
+- **Carátula correcta.** Estos reproductores publican el título antes que la
+  miniatura, y durante un instante esta sigue siendo la de la canción anterior.
+  Por eso la carátula se relee unas veces al empezar cada pista, hasta que se
+  asienta, en vez de quedarse con la primera lectura.
+- **Control de la sesión que suena**, como se explica arriba.
 
 ### Comportamiento en el navegador
 
@@ -505,6 +526,17 @@ deslizador, y pulsarlo silencia o restaura el audio.
 - El estado de la interfaz se reinicia al recargar la página.
 - La compilación de Rust/Tauri requiere la toolchain de Windows indicada en
   [Requisitos](#requisitos).
+
+### De la aplicación de escritorio
+
+- Solo funciona en Windows 10 y 11 (64 bits).
+- El instalador no está firmado: Windows mostrará el aviso de SmartScreen.
+- SMTC no dice en qué web suena una pista, así que la isla no distingue YouTube
+  Music de un vídeo cualquiera del navegador: ambos cuentan como streaming, y
+  si LRCLIB no tiene la letra, simplemente no aparece el botón.
+- Las notificaciones de otras aplicaciones dependen de lo que cada app publique
+  en Windows: Teams, por ejemplo, solo manda remitente y mensaje si tiene
+  activada la vista previa.
 
 ## Referencia y atribución
 
