@@ -2,7 +2,8 @@
 name = "dynamic-island"
 version = "0.1.0"
 description = "Dynamic Island para escritorio Windows"
-authors = ["you"]
+authors = ["Raul Nuñez"]
+license = "MIT"
 edition = "2021"
 
 [lib]
