@@ -229,6 +229,15 @@ fn animate_island(window: &WebviewWindow, width: f64, height: f64) {
     }
 
     let window = window.clone();
+    // El `hwnd` y la escala se piden una vez, aquí: cada una de esas llamadas a
+    // `WebviewWindow` espera al hilo principal, y hacerlo en cada fotograma
+    // (unos 70 en la animación) frenaba la isla en equipos lentos. El `hwnd`
+    // viaja como entero porque `HWND` no es `Send`.
+    #[cfg(windows)]
+    let hwnd_raw = window.hwnd().ok().map(|handle| handle.0 as isize);
+    #[cfg(windows)]
+    let scale = window.scale_factor().unwrap_or(1.0);
+
     std::thread::spawn(move || {
         let start = std::time::Instant::now();
         loop {
@@ -245,11 +254,10 @@ fn animate_island(window: &WebviewWindow, width: f64, height: f64) {
             }
             let shape = Shape::lerp(from, target, morph_ease(t));
             #[cfg(windows)]
-            if let Ok(handle) = window.hwnd() {
-                let scale = window.scale_factor().unwrap_or(1.0);
+            if let Some(raw) = hwnd_raw {
                 unsafe {
                     set_island_region(
-                        windows::Win32::Foundation::HWND(handle.0 as _),
+                        windows::Win32::Foundation::HWND(raw as _),
                         scale,
                         island_left(shape.width),
                         &shape,
@@ -422,7 +430,7 @@ fn island_set_interactive(window: WebviewWindow, interactive: bool) {
 ///
 /// Devuelve una letra vacía si el usuario desactivó la búsqueda en los
 /// ajustes, de modo que nada sale del equipo sin su permiso.
-#[tauri::command]
+#[tauri::command(async)]
 fn lyrics_current() -> lyrics::Lyrics {
     if !settings::current().lyrics {
         return lyrics::Lyrics::default();
@@ -440,25 +448,25 @@ fn lyrics_current() -> lyrics::Lyrics {
 ///
 /// La isla lo pide al arrancar: el sondeo solo avisa de los cambios, así que
 /// sin esto no sabría si ya estaba enchufado.
-#[tauri::command]
+#[tauri::command(async)]
 fn power_state() -> power::PowerState {
     power::read_state()
 }
 
 /// Volumen maestro del sistema, de 0 a 100, y si está silenciado.
-#[tauri::command]
+#[tauri::command(async)]
 fn volume_get() -> (u8, bool) {
     (volume::get(), volume::muted())
 }
 
 /// Ajusta el volumen maestro del sistema.
-#[tauri::command]
+#[tauri::command(async)]
 fn volume_set(value: u8) -> bool {
     volume::set(value)
 }
 
 /// Silencia o restaura el audio del sistema.
-#[tauri::command]
+#[tauri::command(async)]
 fn volume_toggle_mute() -> bool {
     let next = !volume::muted();
     volume::set_muted(next);
@@ -526,31 +534,31 @@ fn open_settings(app: &tauri::AppHandle) {
 }
 
 /// Devuelve el estado multimedia actual del sistema.
-#[tauri::command]
+#[tauri::command(async)]
 fn media_state() -> MediaState {
     smtc::read_state()
 }
 
 /// Alterna reproducir/pausar en el reproductor activo.
-#[tauri::command]
+#[tauri::command(async)]
 fn media_play_pause() -> bool {
     smtc::control(Command::PlayPause)
 }
 
 /// Salta a la pista siguiente.
-#[tauri::command]
+#[tauri::command(async)]
 fn media_next() -> bool {
     smtc::control(Command::Next)
 }
 
 /// Vuelve a la pista anterior.
-#[tauri::command]
+#[tauri::command(async)]
 fn media_previous() -> bool {
     smtc::control(Command::Previous)
 }
 
 /// Salta a una posición de la pista actual, en segundos desde el inicio.
-#[tauri::command]
+#[tauri::command(async)]
 fn media_seek(seconds: f64) -> bool {
     smtc::control(Command::Seek(seconds))
 }

@@ -192,6 +192,16 @@ letras ven todos el mismo texto (tiene pruebas: `cargo test --lib`). Y la sesió
 «actual» de Windows es la última con la que se interactuó, no la que suena:
 `current_session` prefiere la que está reproduciendo.
 
+**Un comando que espera algo no puede correr en el hilo principal.** En Tauri
+los comandos sin `async` se ejecutan en el hilo que dibuja la ventana: si se
+queda esperando, la isla se congela y Windows la marca «no responde», cosa que
+en la máquina de desarrollo no se nota y en otros equipos sí. Por eso los
+comandos que hacen red (`lyrics_current`), WinRT (`media_*`) o COM (`volume_*`)
+llevan `#[tauri::command(async)]`, que los pasa a un hilo aparte. Y toda
+petición HTTP necesita límite de tiempo: el cliente de `lyrics.rs` tiene 4 s
+para conectar y 8 s en total, y tras un fallo de red no insiste durante un
+minuto ni guarda «sin letra» como si fuera el resultado de la pista.
+
 **Las consultas a LRCLIB necesitan dos pasadas.** Apple Music informa el artista
 como `Miranda! — El Templo del Pop`, con el álbum incluido: hay que recortar por
 el separador antes de consultar. Y `/api/get` exige que la duración coincida,

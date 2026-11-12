@@ -5,7 +5,8 @@
 //! con su marca de tiempo en segundos.
 
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Una línea de la letra con el momento en que empieza a sonar.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -139,15 +140,67 @@ fn fetch(title: &str, artist: &str, album: &str, duration: f64) -> Lyrics {
     }
 }
 
+/// Cliente HTTP con límites de tiempo.
+///
+/// Sin ellos, `ureq` espera lo que tarde el sistema en dar la conexión por
+/// perdida, que son decenas de segundos. En un equipo donde `lrclib.net` está
+/// bloqueado (cortafuegos, proxy de empresa, sin internet) cada canción dejaba
+/// la isla colgada. 4 s para conectar y 8 s en total sobran para una API que
+/// responde en décimas de segundo.
+fn agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        let config = ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(4)))
+            .timeout_global(Some(Duration::from_secs(8)))
+            .build();
+        ureq::Agent::new_with_config(config)
+    })
+}
+
+/// Hasta cuándo se evitan las peticiones tras un fallo de red.
+static NETWORK_DOWN_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Tiempo sin reintentar tras un fallo de red: así una red bloqueada cuesta
+/// una espera de 4 s y no una por cada canción.
+const NETWORK_RETRY_AFTER: Duration = Duration::from_secs(60);
+
+fn network_blocked() -> bool {
+    NETWORK_DOWN_UNTIL
+        .lock()
+        .map(|until| until.is_some_and(|instant| Instant::now() < instant))
+        .unwrap_or(false)
+}
+
+fn mark_network_down() {
+    if let Ok(mut until) = NETWORK_DOWN_UNTIL.lock() {
+        *until = Some(Instant::now() + NETWORK_RETRY_AFTER);
+    }
+}
+
 /// Pide una URL de LRCLIB y devuelve las líneas sincronizadas que encuentre.
 ///
 /// La API responde con un objeto o con una lista según el extremo, así que se
 /// aceptan ambos. Devuelve `None` si no hay letra con marcas de tiempo.
 fn request_synced(url: &str) -> Option<Vec<LyricLine>> {
-    let mut response = ureq::get(url)
+    if network_blocked() {
+        return None;
+    }
+    let mut response = match agent()
+        .get(url)
         .header("User-Agent", "DynamicIsland/0.1 (dynamic-island desktop)")
         .call()
-        .ok()?;
+    {
+        Ok(response) => response,
+        // Un 404 es «esa pista no tiene letra»: la red funciona.
+        Err(ureq::Error::StatusCode(_)) => return None,
+        // Cualquier otro error es de transporte (sin internet, cortafuegos,
+        // proxy, tiempo agotado): se deja de insistir un rato.
+        Err(_) => {
+            mark_network_down();
+            return None;
+        }
+    };
 
     let value: serde_json::Value = response.body_mut().read_json().ok()?;
 
@@ -213,8 +266,12 @@ pub fn for_track(title: &str, artist: &str, album: &str, duration: f64) -> Lyric
     }
 
     let lyrics = fetch(title, artist, album, duration);
-    if let Ok(mut cache) = CACHE.lock() {
-        *cache = Some((key, lyrics.clone()));
+    // Si falló la red, «sin letra» no es el resultado de la pista sino de la
+    // conexión: no se guarda, para que al volver internet se vuelva a probar.
+    if !network_blocked() {
+        if let Ok(mut cache) = CACHE.lock() {
+            *cache = Some((key, lyrics.clone()));
+        }
     }
     lyrics
 }
