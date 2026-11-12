@@ -37,16 +37,25 @@ export function useLyrics(trackKey: Ref<string>, position: Ref<number>) {
    * resaltarla justo en ese instante se percibe tarde: para cuando el ojo la
    * localiza, la voz ya va por delante. Un pequeño adelanto la deja a tiempo.
    */
-  const LEAD_SECONDS = 0.45;
+  const LEAD_SECONDS = 0.75;
 
   /** Índice de la línea que corresponde a la posición actual. */
   const activeIndex = computed(() => {
     if (lines.value.length === 0) return -1;
     const now = position.value + LEAD_SECONDS;
+    // Búsqueda binaria: se evalúa a cada fotograma y las letras tienen cientos
+    // de líneas. Devuelve la última cuya marca ya pasó.
+    let low = 0;
+    let high = lines.value.length - 1;
     let index = -1;
-    for (let i = 0; i < lines.value.length; i += 1) {
-      if (lines.value[i].time <= now) index = i;
-      else break;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (lines.value[mid].time <= now) {
+        index = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
     }
     return index;
   });

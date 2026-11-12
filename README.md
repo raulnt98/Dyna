@@ -379,12 +379,33 @@ confirmación.
 | Iniciar con Windows | Registra la app en el arranque del usuario actual. |
 | Letras sincronizadas | Busca la letra en LRCLIB. Al desactivarlo, no sale ninguna consulta del equipo. |
 | Salto de los botones | Segundos que avanzan o retroceden los botones: 5, 10, 15 o 30. |
+| Avisos del sistema | Interruptor general de los avisos. Debajo, uno por tipo: cargador, volumen y batería baja (al 20 % y al 10 %). |
+| Notificaciones de aplicaciones | Muestra en la isla las notificaciones de Teams, Outlook u otras apps. **Apagado por defecto.** Ver abajo. |
 
 Los ajustes se guardan en `%APPDATA%\DynamicIsland\settings.json`. El inicio
 automático se escribe en la clave `Run` del usuario, que no requiere permisos
 de administrador.
 
+### Notificaciones de otras aplicaciones
+
+La isla puede mostrar las notificaciones de Windows de otras apps: una píldora
+más alta con el remitente y la primera línea del mensaje. Se lee a través de
+`UserNotificationListener`, así que Windows debe tener permitido el acceso a
+notificaciones (Configuración → Privacidad y seguridad → Notificaciones).
+
+- **Apagado por defecto**, porque lee contenido privado. Se activa en ajustes.
+- **No sale nada del equipo**: el texto pasa del sistema a la ventana de la isla
+  y no se guarda en disco ni en registros. Lo único que se persiste es el
+  nombre de cada aplicación detectada.
+- **Tú eliges qué apps**: la isla las va detectando y las lista en ajustes, todas
+  desactivadas. Solo se muestran las que actives. Aparecen al llegar una
+  notificación o si ya hay alguna en el centro de notificaciones.
+
 ### Letra sincronizada (karaoke)
+
+Solo se ofrece cuando suena un servicio de streaming musical (Spotify, Apple
+Music, Deezer…) o una webapp en el navegador; con un reproductor local no se
+consulta nada.
 
 Cuando la pista tiene letra disponible aparece un botón de micrófono entre los
 controles. Al pulsarlo, la isla **se alarga en horizontal** y muestra un panel

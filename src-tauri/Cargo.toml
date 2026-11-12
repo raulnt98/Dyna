@@ -24,12 +24,22 @@ windows = { version = "0.62", features = [
     "Foundation",
     "Media_Control",
     "Storage_Streams",
+    # Leer las notificaciones de otras apps (UserNotificationListener) y el
+    # nombre de la aplicación que las emite.
+    "ApplicationModel",
+    "UI_Notifications",
+    "UI_Notifications_Management",
+    "Foundation_Collections",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com",
     "Win32_Foundation",
     # SetWindowPos: mueve y redimensiona la isla en una sola operación.
     "Win32_UI_WindowsAndMessaging",
+    # SetWindowRgn y CreateRectRgn: recortan la ventana fija a la isla.
+    "Win32_Graphics_Gdi",
+    # DwmEnableBlurBehindWindow: reaplica la transparencia tras recortar.
+    "Win32_Graphics_Dwm",
     # GetSystemPowerStatus: bateria y corriente, para el aviso del cargador.
     "Win32_System_Power",
 ] }

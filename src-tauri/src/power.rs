@@ -5,6 +5,17 @@ use serde::Serialize;
 /// Evento con el estado eléctrico del equipo.
 pub const POWER_EVENT: &str = "power://changed";
 
+/// Evento de batería baja: el equipo cruzó un umbral sin estar enchufado.
+pub const LOW_BATTERY_EVENT: &str = "power://low";
+
+/// Umbrales de aviso, de menor a mayor: crítica y baja.
+pub const LOW_BATTERY_THRESHOLDS: [u8; 2] = [10, 20];
+
+/// Por encima de este porcentaje la batería se da por recuperada y los avisos
+/// vuelven a armarse. Con holgura sobre el umbral de 20 para que un valor que
+/// oscila alrededor de él no repita el aviso.
+pub const LOW_BATTERY_REARM: u8 = 25;
+
 /// Lo que la isla necesita saber de la alimentación del equipo.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -7,6 +7,7 @@
  */
 import {
   IconArrowDownToArc,
+  IconBatteryExclamation,
   IconBell,
   IconBolt,
   IconClock,
@@ -81,6 +82,30 @@ const props = defineProps<{
 const showsPill = computed(() => !props.expanded);
 
 /**
+ * Aviso grande: al enchufar el cargador la isla crece al tamaño del panel y
+ * enseña la batería llenándose. Solo con la isla cerrada: abierta, el usuario
+ * ya está usando el panel y el aviso entra como franja (ver arriba).
+ *
+ * Reutiliza las medidas y la clase `is-expanded` del panel, de modo que las
+ * muescas de las esquinas y el recorte de la ventana nativa (que se basa en la
+ * altura) encajan sin código nuevo.
+ */
+const showsCharge = computed(() => !props.expanded && props.notice?.data?.large === true);
+const chargePercent = computed(() => Number(props.notice?.data?.percent ?? 0));
+
+/**
+ * Notificación de otra aplicación: una píldora alta (340 × 60) con el remitente
+ * y el mensaje. Igual que el aviso del cargador, reutiliza `is-expanded` para
+ * que las muescas y el recorte de la ventana (que se basa en la altura) encajen.
+ */
+const showsToast = computed(() => !props.expanded && props.notice?.data?.tall === true);
+const toastApp = computed(() => String(props.notice?.data?.app ?? ""));
+const toastTitle = computed(() => String(props.notice?.data?.title ?? ""));
+const toastBody = computed(() => String(props.notice?.data?.body ?? ""));
+/** Inicial de la aplicación, que hace de avatar: Windows no entrega el logo. */
+const toastInitial = computed(() => toastApp.value.trim().charAt(0).toUpperCase() || "!");
+
+/**
  * Ancho de la píldora.
  *
  * Expandida y sin aviso manda la clase de Tailwind; en píldora el ancho se
@@ -88,7 +113,7 @@ const showsPill = computed(() => !props.expanded);
  * su ventana no se desincronicen.
  */
 const compactWidth = computed(() => {
-  if (!showsPill.value) return undefined;
+  if (!showsPill.value || showsCharge.value || showsToast.value) return undefined;
   const width = props.notice ? noticeWidth(props.notice.label) : 116;
   return { width: `${width}px` };
 });
@@ -176,12 +201,19 @@ function onSeekKeydown(event: KeyboardEvent) {
   <div
     :class="[
       'island island-morph',
-      { 'is-expanded': expanded, 'is-paused': !playing },
+      {
+        'is-expanded': expanded || showsCharge || showsToast,
+        'is-charge': showsCharge,
+        'is-toast': showsToast,
+        'is-paused': !playing,
+      },
       `mode-${mode}`,
       { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
-      showsPill
-        ? 'h-[34px] rounded-[18px]'
-        : 'w-[330px] h-[108px] rounded-[24px]',
+      showsToast
+        ? 'w-[340px] h-[60px] rounded-[24px]'
+        : showsPill && !showsCharge
+          ? 'h-[34px] rounded-[18px]'
+          : 'w-[330px] h-[108px] rounded-[24px]',
     ]"
     :style="compactWidth"
     role="button"
@@ -199,12 +231,51 @@ function onSeekKeydown(event: KeyboardEvent) {
       aria-hidden="true"
     ></div>
 
-    <div v-if="showsPill" class="island-collapsed" aria-hidden="true">
+    <!-- Batería cargando: fuera de `.island-content` por lo mismo que la franja,
+         `v-auto-animate` pelearía con su animación. -->
+    <div
+      v-if="showsCharge"
+      class="charge-panel"
+      :style="{ '--pct': chargePercent }"
+      aria-hidden="true"
+    >
+      <div class="charge-battery">
+        <div class="charge-body">
+          <div class="charge-fill"></div>
+          <IconBolt class="charge-bolt" />
+        </div>
+        <span class="charge-cap"></span>
+      </div>
+      <div class="charge-copy">
+        <strong class="charge-percent"></strong>
+        <small>Cargando</small>
+      </div>
+    </div>
+
+    <!-- Notificación de otra aplicación. Cada una lleva `key` para que el
+         contenido se renueve al relevarse por otra aún con la isla alta. -->
+    <div v-if="showsToast" :key="`${toastApp}${toastTitle}${toastBody}`" class="toast-panel" aria-hidden="true">
+      <span class="toast-avatar">{{ toastInitial }}</span>
+      <span class="toast-copy">
+        <span class="toast-app">{{ toastApp }}</span>
+        <strong class="toast-title" :class="{ 'is-solo': !toastBody }">{{ toastTitle }}</strong>
+        <span v-if="toastBody" class="toast-body">{{ toastBody }}</span>
+      </span>
+    </div>
+
+    <div v-if="showsPill && !showsCharge && !showsToast" class="island-collapsed" aria-hidden="true">
       <!-- Un aviso manda sobre el modo: interrumpe, se muestra unos segundos
            y al retirarse la isla recupera lo que estaba enseñando. -->
       <template v-if="notice">
-        <span class="notice-icon" :class="`notice-${notice.kind}`">
+        <span
+          class="notice-icon"
+          :class="[`notice-${notice.kind}`, { 'is-charging': notice.data?.plugged }]"
+          :style="{ '--pct': Number(notice.data?.percent ?? 0) }"
+        >
           <IconBolt v-if="notice.kind === 'power'" />
+          <IconVolumeOff v-else-if="notice.kind === 'volume' && notice.data?.muted" />
+          <IconVolume2 v-else-if="notice.kind === 'volume'" />
+          <IconBatteryExclamation v-else-if="notice.kind === 'battery'" />
           <IconBell v-else />
         </span>
         <span class="collapsed-time notice-label">{{ notice.label }}</span>
@@ -256,8 +327,15 @@ function onSeekKeydown(event: KeyboardEvent) {
       :class="`notice-${notice.kind}`"
       aria-hidden="true"
     >
-      <span class="notice-strip-icon">
+      <span
+        class="notice-strip-icon"
+        :class="{ 'is-charging': notice.data?.plugged }"
+        :style="{ '--pct': Number(notice.data?.percent ?? 0) }"
+      >
         <IconBolt v-if="notice.kind === 'power'" />
+          <IconVolumeOff v-else-if="notice.kind === 'volume' && notice.data?.muted" />
+          <IconVolume2 v-else-if="notice.kind === 'volume'" />
+          <IconBatteryExclamation v-else-if="notice.kind === 'battery'" />
         <IconBell v-else />
       </span>
       <span class="notice-strip-label">{{ notice.label }}</span>
@@ -431,21 +509,20 @@ function onSeekKeydown(event: KeyboardEvent) {
           }"
           :leave="{ opacity: 0, x: -16, transition: { duration: 180 } }"
         >
-          <div
-            v-for="line in lyricLines"
-            :key="`${line.time}-${line.text}`"
-            v-motion
-            class="lyric-line"
-            :class="{ 'is-active': line.active }"
-            :initial="{ opacity: 0, y: 6 }"
-            :enter="{
-              opacity: line.active ? 1 : 0.4,
-              y: 0,
-              transition: { type: 'spring', stiffness: 260, damping: 28 },
-            }"
-          >
-            {{ line.text }}
-          </div>
+          <!-- Transiciones CSS y no `v-motion`: este solo aplica su `enter` al
+               montar, así que una línea que pasa a ser la activa se quedaba
+               atenuada. Con TransitionGroup las líneas además suben una a
+               una (FLIP) al avanzar la letra. -->
+          <TransitionGroup name="lyric" tag="div" class="lyric-list">
+            <div
+              v-for="line in lyricLines"
+              :key="`${line.time}-${line.text}`"
+              class="lyric-line"
+              :class="{ 'is-active': line.active }"
+            >
+              {{ line.text }}
+            </div>
+          </TransitionGroup>
         </div>
         </div>
       </template>

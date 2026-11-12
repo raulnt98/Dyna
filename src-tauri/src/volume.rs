@@ -3,6 +3,20 @@
 //! Usa la API Core Audio (`IAudioEndpointVolume`), que controla el volumen
 //! maestro del sistema: el mismo que mueve la tecla de volumen del teclado.
 
+use serde::Serialize;
+
+/// Evento con el volumen nuevo cuando el sistema lo cambia.
+pub const VOLUME_EVENT: &str = "volume://changed";
+
+/// Volumen y silencio del dispositivo de salida.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeState {
+    /// De 0 a 100.
+    pub level: u8,
+    pub muted: bool,
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
     use windows::core::Interface;
@@ -39,6 +53,26 @@ mod imp {
         }
     }
 
+    /// Volumen y silencio con una sola consulta al dispositivo.
+    ///
+    /// El sondeo que detecta los cambios llama a esto varias veces por
+    /// segundo: pedir `get` y `muted` por separado duplicaría el trabajo de
+    /// localizar el dispositivo, que es lo caro.
+    pub fn read() -> super::VolumeState {
+        let Some(endpoint) = endpoint() else {
+            return super::VolumeState::default();
+        };
+        unsafe {
+            super::VolumeState {
+                level: endpoint
+                    .GetMasterVolumeLevelScalar()
+                    .map(|level| (level * 100.0).round().clamp(0.0, 100.0) as u8)
+                    .unwrap_or(0),
+                muted: endpoint.GetMute().map(|m| m.as_bool()).unwrap_or(false),
+            }
+        }
+    }
+
     /// Ajusta el volumen maestro. `value` va de 0 a 100.
     pub fn set(value: u8) -> bool {
         let Some(endpoint) = endpoint() else {
@@ -70,6 +104,9 @@ mod imp {
     pub fn get() -> u8 {
         0
     }
+    pub fn read() -> super::VolumeState {
+        super::VolumeState::default()
+    }
     pub fn set(_value: u8) -> bool {
         false
     }
@@ -81,4 +118,4 @@ mod imp {
     }
 }
 
-pub use imp::{get, muted, set, set_muted};
+pub use imp::{get, muted, read, set, set_muted};

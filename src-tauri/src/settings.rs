@@ -12,6 +12,15 @@ pub enum Position {
     Right,
 }
 
+/// Una aplicación detectada y si el usuario quiere ver sus notificaciones.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationApp {
+    /// Nombre tal como lo informa Windows («Microsoft Teams»).
+    pub name: String,
+    pub enabled: bool,
+}
+
 /// Preferencias que el usuario puede cambiar desde el panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -24,8 +33,23 @@ pub struct Settings {
     pub autostart: bool,
     /// Avisar de sucesos del sistema, como conectar el cargador.
     pub notifications: bool,
+    /// Avisar al conectar o desconectar el cargador. Solo cuenta si
+    /// `notifications` está activo, que es el interruptor general.
+    pub notify_charger: bool,
+    /// Avisar de los cambios de volumen y del silencio.
+    pub notify_volume: bool,
+    /// Avisar al bajar al 20 % y al 10 % de batería.
+    pub notify_low_battery: bool,
     /// Buscar letras sincronizadas en LRCLIB (envía título y artista).
     pub lyrics: bool,
+    /// Mostrar en la isla las notificaciones de otras aplicaciones (Teams,
+    /// Outlook…). Lee contenido privado de Windows, aunque no sale del equipo:
+    /// por eso nace apagado.
+    pub app_notifications: bool,
+    /// Aplicaciones que la isla ha visto enviar notificaciones, cada una con su
+    /// interruptor. La lista la rellena la propia app al detectarlas (ver
+    /// `toasts.rs`); el usuario solo activa las que quiere.
+    pub notification_apps: Vec<NotificationApp>,
     /// Segundos que saltan los botones de avance y retroceso.
     pub skip_seconds: f64,
 }
@@ -41,7 +65,12 @@ impl Default for Settings {
             hide_when_idle: false,
             autostart: false,
             notifications: true,
+            notify_charger: true,
+            notify_volume: true,
+            notify_low_battery: true,
             lyrics: true,
+            app_notifications: false,
+            notification_apps: Vec::new(),
             skip_seconds: 10.0,
         }
     }

@@ -9,7 +9,7 @@
 import { computed, onUnmounted, ref } from "vue";
 
 /** Tipos de aviso que la isla sabe dibujar. */
-export type NoticeKind = "power";
+export type NoticeKind = "power" | "volume" | "battery" | "toast";
 
 export interface Notice {
   /** Identifica al emisor: dos avisos del mismo tipo se reemplazan, no se encolan. */
@@ -20,7 +20,16 @@ export interface Notice {
   duration: number;
   /** Datos propios del aviso, para que la vista dibuje lo suyo. */
   data?: Record<string, unknown>;
+  /**
+   * El aviso se encola aunque haya otro del mismo tipo, y no se acorta cuando
+   * llega el siguiente. Para mensajes: dos mensajes seguidos son dos mensajes,
+   * no el mismo aviso actualizado, a diferencia del volumen o el cargador.
+   */
+  stack?: boolean;
 }
+
+/** Máximo de avisos apilados esperando turno; los más antiguos se descartan. */
+const MAX_STACKED = 5;
 
 /**
  * Tiempo mínimo que un aviso permanece visible aunque llegue otro detrás.
@@ -79,7 +88,9 @@ export function useNotifications() {
    * enchufar y desenchufar seguido interesa el estado final, no la secuencia.
    */
   const notify = (notice: Notice) => {
-    queue.value = queue.value.filter((item) => item.kind !== notice.kind);
+    if (!notice.stack) {
+      queue.value = queue.value.filter((item) => item.kind !== notice.kind);
+    }
 
     if (!current.value) {
       queue.value.push(notice);
@@ -87,7 +98,7 @@ export function useNotifications() {
       return;
     }
 
-    if (current.value.kind === notice.kind) {
+    if (!notice.stack && current.value.kind === notice.kind) {
       // Mismo emisor: se actualiza en el sitio y se reinicia la cuenta, para
       // que el texto nuevo no herede los milisegundos que le quedaban al viejo.
       current.value = notice;
@@ -98,6 +109,14 @@ export function useNotifications() {
     }
 
     queue.value.push(notice);
+    // Con una avalancha de mensajes solo interesan los últimos.
+    const stacked = queue.value.filter((item) => item.stack);
+    if (stacked.length > MAX_STACKED) {
+      queue.value = queue.value.filter((item) => item !== stacked[0]);
+    }
+
+    // Un mensaje en pantalla se lee entero: no se acorta por el siguiente.
+    if (current.value.stack) return;
 
     // El aviso en curso conserva su tiempo mínimo en pantalla; pasado ese
     // umbral cede el turno enseguida para que el siguiente no espere de más.

@@ -143,9 +143,111 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 /* Verde de carga, el mismo que usa la llamada activa: es el color con el que
    el resto de la isla dice «esto va bien». */
 .notice-power { background: rgba(183,243,107,.16); color: var(--green); }
+/* Volumen en blanco neutro: no es un estado bueno ni malo, solo informativo. */
+.notice-volume { background: rgba(255,255,255,.14); color: #fff; }
+/* Bateria baja en ambar-rojo, el color con el que la isla pide atencion. */
+.notice-battery { background: rgba(255,138,112,.18); color: #ff8a70; }
+.notice-strip.notice-volume .notice-strip-icon { background: rgba(255,255,255,.14); color: #fff; }
+.notice-strip.notice-battery .notice-strip-icon { background: rgba(255,138,112,.18); color: #ff8a70; }
 /* El texto acompana al icono: en ambar (heredado de .collapsed-time) el aviso
    se lee como dos mensajes distintos en vez de uno. */
 .notice-label { white-space: nowrap; color: rgba(255,255,255,.92); font-weight: 600; }
+
+/* Al enchufar, el icono se rodea de un anillo que se llena hasta el porcentaje
+   de bateria y el rayo late mientras el aviso esta en pantalla. `@property`
+   hace animable la variable: sin registrarla, el navegador salta de 0 al final. */
+@property --fill { syntax: "<number>"; inherits: false; initial-value: 0; }
+.notice-icon.is-charging, .notice-strip-icon.is-charging {
+  position: relative;
+  background: conic-gradient(var(--green) calc(var(--fill) * 1%), rgba(183,243,107,.16) 0);
+  animation: charge-fill .9s cubic-bezier(.22,1,.36,1) .15s both;
+}
+/* Disco interior: deja visible solo un aro de 2 px del degradado. */
+.notice-icon.is-charging::before, .notice-strip-icon.is-charging::before {
+  content: ""; position: absolute; inset: 2px; border-radius: 50%; background: #0a0c0a;
+}
+.notice-icon.is-charging svg, .notice-strip-icon.is-charging svg {
+  position: relative; animation: charge-pulse 1.1s ease-in-out .2s infinite;
+}
+@keyframes charge-fill { from { --fill: 0; } to { --fill: var(--pct); } }
+@keyframes charge-pulse { 0%, 100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.18); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .notice-icon.is-charging, .notice-strip-icon.is-charging, .notice-icon.is-charging svg, .notice-strip-icon.is-charging svg { animation: none; --fill: var(--pct); }
+}
+
+/* --- Notificacion de otra aplicacion --- */
+.toast-panel {
+  position: absolute; inset: 0; z-index: 1; isolation: isolate;
+  display: flex; align-items: center; gap: 11px; padding: 0 18px 0 16px;
+  /* Solo opacidad, como el resto del contenido de la isla. */
+  animation: island-fade-in .3s ease-out .14s both;
+}
+.toast-avatar {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 15px; font-weight: 700; color: #0a0c0a; background: var(--green);
+}
+.toast-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.toast-app { font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa4; }
+.toast-title, .toast-body { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast-title { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.96); line-height: 1.2; }
+/* Sin cuerpo, el texto unico ocupa la fila del mensaje y puede ir a dos lineas. */
+.toast-title.is-solo {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  white-space: normal; overflow-wrap: anywhere; font-weight: 500;
+}
+/* El cuerpo ocupa una linea: con tres filas de texto la pildora de 60 px no da
+   mas de si, y el mensaje completo se lee abriendo la aplicacion. */
+.toast-body { font-size: 11.5px; color: rgba(255,255,255,.72); line-height: 1.25; }
+@media (prefers-reduced-motion: reduce) { .toast-panel { animation: none; } }
+
+/* --- Aviso grande del cargador --- */
+/* El contador del porcentaje necesita su propia variable entera: `counter()`
+   solo acepta enteros, y `--fill` (decimal) da valores intermedios invalidos. */
+@property --num { syntax: "<integer>"; inherits: false; initial-value: 0; }
+.charge-panel {
+  position: absolute; inset: 0; z-index: 1; isolation: isolate;
+  display: flex; align-items: center; justify-content: center; gap: 26px;
+  /* Entra solo con opacidad, como el resto del contenido: un desplazamiento
+     se percibe como un salto sobre una isla que ya se esta redimensionando. */
+  animation: island-fade-in .3s ease-out .16s both;
+}
+.charge-battery { display: flex; align-items: center; }
+.charge-body {
+  position: relative; width: 92px; height: 46px; border-radius: 13px;
+  border: 2px solid rgba(255,255,255,.7); overflow: hidden; display: grid; place-items: center;
+}
+.charge-cap { width: 5px; height: 18px; margin-left: 3px; border-radius: 0 3px 3px 0; background: rgba(255,255,255,.7); }
+/* Nivel de carga: crece de izquierda a derecha y un brillo lo recorre para que
+   se lea como «entrando energia» y no como una barra estatica. */
+.charge-fill {
+  position: absolute; inset: 0 auto 0 0; width: calc(var(--fill) * 1%);
+  background: linear-gradient(90deg, #7fd13f, var(--green));
+  animation: charge-fill .95s cubic-bezier(.22,1,.36,1) .35s both;
+}
+.charge-fill::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
+  background-size: 220% 100%;
+  animation: charge-sheen 1.3s linear 1.2s infinite;
+}
+.charge-bolt { position: relative; z-index: 1; width: 22px; height: 22px; color: #0a0c0a; animation: charge-pulse 1.1s ease-in-out .4s infinite; }
+.charge-copy { display: flex; flex-direction: column; gap: 1px; }
+.charge-percent {
+  font-size: 34px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums;
+  animation: charge-count .95s cubic-bezier(.22,1,.36,1) .35s both;
+}
+/* El reinicio va en el propio elemento: `--num` no se hereda, y un pseudo
+   elemento leeria su valor inicial (0) en vez del animado. */
+.charge-percent { counter-reset: num var(--num); }
+.charge-percent::after { content: counter(num) "%"; }
+.charge-copy small { font-size: 12px; font-weight: 600; color: var(--green); letter-spacing: .02em; }
+@keyframes charge-count { from { --num: 0; } to { --num: var(--pct); } }
+@keyframes charge-sheen { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .charge-panel, .charge-fill, .charge-fill::after, .charge-bolt, .charge-percent { animation: none; }
+  .charge-fill { --fill: var(--pct); }
+  .charge-percent { --num: var(--pct); }
+}
 
 /* --- Aviso dentro del panel --- */
 /* Ocupa su propio sitio en lugar de superponerse. Taparia justo la fila del
@@ -354,9 +456,30 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 .music-shell { height: 100%; display: flex; align-items: stretch; gap: 12px; }
 .music-shell .music-layout { flex: 0 0 auto; width: 300px; }
 .lyrics-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding-left: 12px; border-left: 1px solid rgba(255,255,255,.1); overflow: hidden; }
-.lyric-line { color: #e8e8ee; font-size: 10.5px; line-height: 1.32; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transform-origin: left center; }
-/* La linea que suena ahora: mas grande, nitida y en el verde de la marca. */
-.lyric-line.is-active { color: var(--green); font-size: 11.5px; font-weight: 600; }
+.lyric-list { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; }
+/* El ancho deja sitio al escalado de la linea activa (1 / 1.095): asi su
+   texto, ya agrandado, no se corta contra el borde del panel. */
+.lyric-line {
+  width: 91.3%; color: #e8e8ee; opacity: .4; font-size: 10.5px; line-height: 1.32;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transform-origin: left center;
+  transition: opacity .35s ease, color .35s ease, transform .4s cubic-bezier(.22,1,.36,1);
+}
+/* La linea que suena ahora: mas grande (por escala, sin recolocar el resto),
+   nitida y en el verde de la marca. */
+.lyric-line.is-active { color: var(--green); opacity: 1; font-weight: 600; transform: scale(1.095); }
+/* La activa puede ocupar dos renglones: es la frase que se esta cantando y
+   cortarla con puntos suspensivos la deja a medias. Las demas son contexto y
+   siguen en una sola linea. Si ni asi cabe, el recorte cae en el segundo. */
+.lyric-line.is-active {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  white-space: normal; text-overflow: clip; overflow-wrap: anywhere;
+}
+/* Al avanzar la letra las lineas suben una a una; la que sale se desvanece sin
+   ocupar sitio, para que las demas no salten al quitarla. */
+.lyric-enter-from { opacity: 0; transform: translateY(8px); }
+.lyric-leave-to { opacity: 0; transform: translateY(-8px); }
+.lyric-leave-active { position: absolute; left: 0; }
+@media (prefers-reduced-motion: reduce) { .lyric-line { transition-duration: .01ms; } }
 .control-right { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .lyrics-toggle { width: 22px; height: 22px; color: #9a9aa4; }
 .lyrics-toggle svg { width: 14px; height: 14px; }

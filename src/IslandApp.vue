@@ -9,19 +9,26 @@
 import { computed, onMounted, ref, watch } from "vue";
 import TheIsland from "@/components/TheIsland.vue";
 import { useSystemMedia } from "@/lib/media";
+import { useSmoothPosition } from "@/lib/clock";
 import { useLyrics } from "@/lib/lyrics";
 import { noticeWidth, useNotifications } from "@/lib/notifications";
 import { useSystemPower } from "@/lib/power";
+import { tidyToast, useLowBatteryEvents, useToastEvents, useVolumeEvents } from "@/lib/systemEvents";
 import type { Activity } from "@/lib/activities";
 
 /** Tamaños de la isla, en sincronía con las clases de TheIsland.vue. */
 const COMPACT = { width: 116, height: 34 };
 const EXPANDED = { width: 330, height: 108 };
+/** Notificación de otra aplicación: más alta que la compacta, sin llegar al panel. */
+const TOAST = { width: 340, height: 60 };
 /** Con la letra abierta la isla se alarga para dejarle sitio al panel. */
 const WITH_LYRICS = { width: 540, height: 108 };
 
 const mode = ref<Activity>("music");
 const expanded = ref(false);
+/** Lado de la pantalla al que se pega la isla, según los ajustes. */
+type Alignment = "left" | "center" | "right";
+const alignment = ref<Alignment>("center");
 const media = useSystemMedia();
 
 /** Cola de avisos: interrumpen la píldora compacta y se retiran solos. */
@@ -38,7 +45,56 @@ useSystemPower((state) => {
   notifications.notify({
     kind: "power",
     label: state.plugged ? `${state.percent}% · Cargando` : `${state.percent}%`,
-    duration: 3200,
+    // Al enchufar, el aviso es grande y se queda algo más: la animación de la
+    // batería necesita su segundo largo para verse entera.
+    duration: state.plugged ? 4500 : 3200,
+    data: { plugged: state.plugged, percent: state.percent, large: state.plugged },
+  });
+});
+
+/**
+ * Aviso de volumen al cambiarlo desde el sistema (teclas, mezclador…).
+ *
+ * Con la isla abierta se ignora: el panel ya tiene su control deslizante, que
+ * muestra el valor, y una franja encima repetiría lo que el usuario está viendo
+ * mover. El silencio se anuncia como texto, no como un 0 %.
+ */
+useVolumeEvents((change) => {
+  if (expanded.value) return;
+  notifications.notify({
+    kind: "volume",
+    label: change.muted || change.level === 0 ? "Silencio" : `Volumen ${change.level}%`,
+    duration: 1600,
+    data: { muted: change.muted || change.level === 0, level: change.level },
+  });
+});
+
+/**
+ * Notificación de otra aplicación (Teams, Outlook…).
+ *
+ * Se apilan en lugar de reemplazarse: dos mensajes seguidos son dos mensajes.
+ * Con la isla abierta entra como franja con una sola línea, porque el panel
+ * no tiene sitio para el formato grande.
+ */
+useToastEvents((toast) => {
+  const { title, body } = tidyToast(toast);
+  const text = [title, body].filter(Boolean).join(": ");
+  notifications.notify({
+    kind: "toast",
+    label: `${toast.app} · ${text}`,
+    duration: 5500,
+    stack: true,
+    data: { tall: true, app: toast.app, title, body },
+  });
+});
+
+/** Aviso al cruzar el 20 % y el 10 % de batería sin cargador. */
+useLowBatteryEvents((state) => {
+  notifications.notify({
+    kind: "battery",
+    label: state.percent <= 10 ? `Batería crítica ${state.percent}%` : `Batería baja ${state.percent}%`,
+    duration: 5000,
+    data: { percent: state.percent },
   });
 });
 
@@ -99,6 +155,10 @@ const targetSize = computed(() => {
   // cambia el tamaño: el aviso se dibuja como franja dentro del panel, que
   // el usuario abrió a propósito y puede estar usando.
   if (!expanded.value) {
+    // El aviso del cargador crece al tamaño del panel (ver `showsCharge`).
+    if (notice.value?.data?.large) return EXPANDED;
+    // La notificación de otra app: píldora alta, con remitente y mensaje.
+    if (notice.value?.data?.tall) return TOAST;
     return notice.value
       ? { width: noticeWidth(notice.value.label), height: COMPACT.height }
       : COMPACT;
@@ -109,22 +169,23 @@ const targetSize = computed(() => {
 // `immediate` asegura que la ventana adopte el tamaño compacto al arrancar:
 // sin él conservaría el declarado en la configuración hasta el primer cambio.
 /**
- * Espera antes de encoger la ventana, tras la transición de `.island-morph`.
+ * Pide a Rust el tamaño de la isla.
  *
- * Los .58s del CSS más un margen: igualarlos exactamente hace que el
- * `set_size` compita con el último fotograma de la animación y recorte su
- * cola, que es justo donde el muelle se asienta.
+ * La ventana nativa tiene tamaño fijo: Rust solo recorta la zona visible
+ * (`SetWindowRgn`), así que no hay viewport que actualizar ni fotograma
+ * viejo que se cuele. Por eso la isla puede centrarse sin más en la ventana.
  */
-const MORPH_MS = 640;
-let shrinkTimer: number | undefined;
+function resizeWindow(size: { width: number; height: number }) {
+  invokeWindow("island_resize", size);
+}
 
 /**
- * Sincroniza la ventana con el tamaño de la isla.
+ * Sincroniza el recorte de la ventana con el tamaño de la isla.
  *
- * La ventana cambia de golpe mientras el CSS anima la píldora, así que el
- * orden importa: al crecer se agranda primero, para que la isla tenga sitio
- * donde expandirse; al encoger se espera a que la animación termine, o el
- * contenido se vería recortado a media transición.
+ * Rust anima el recorte con la misma curva y duración que el CSS de la
+ * píldora (`animate_island`), así que se avisa al mismo tiempo al crecer y al
+ * encoger. Antes, al encoger se esperaba 640 ms y el recorte viejo seguía a la
+ * vista mientras la píldora ya era pequeña: dos tamaños y un salto final.
  */
 watch(
   targetSize,
@@ -135,14 +196,7 @@ watch(
     // mismo tamaño que ya tenía, y ese `SetWindowPos` de más se ve parpadear.
     if (previous && size.width === previous.width && size.height === previous.height) return;
 
-    if (shrinkTimer !== undefined) window.clearTimeout(shrinkTimer);
-
-    const growing = !previous || size.width >= previous.width;
-    if (growing) {
-      invokeWindow("island_resize", size);
-      return;
-    }
-    shrinkTimer = window.setTimeout(() => invokeWindow("island_resize", size), MORPH_MS);
+    resizeWindow(size);
   },
   { immediate: true },
 );
@@ -160,7 +214,9 @@ const trackKey = computed(() => {
   const { title, artist } = media.state.value;
   return title ? `${title} — ${artist}` : "";
 });
-const trackPosition = computed(() => media.state.value.position);
+// Reloj local: la posición del sistema llega a saltos de 250 ms y la letra
+// necesita seguirla fotograma a fotograma. Solo corre con el panel abierto.
+const trackPosition = useSmoothPosition(() => media.state.value, lyricsOpen);
 const lyrics = useLyrics(trackKey, trackPosition);
 // Se exponen sueltos: dentro del template un computed anidado en un objeto
 // no se desenvuelve solo, y `lyrics.available.value` quedaría indefinido.
@@ -218,8 +274,9 @@ function handleIslandKeydown(event: KeyboardEvent) {
 const skipSeconds = ref(10);
 
 onMounted(async () => {
-  const stored = await invokeResult<{ skipSeconds?: number }>("settings_get");
+  const stored = await invokeResult<{ skipSeconds?: number; position?: Alignment }>("settings_get");
   if (stored?.skipSeconds) skipSeconds.value = stored.skipSeconds;
+  if (stored?.position) alignment.value = stored.position;
 
   // El primer intento de redimensionar ocurre antes de que la API de Tauri
   // esté cargada, así que se repite aquí ya con el módulo disponible.
@@ -229,8 +286,9 @@ onMounted(async () => {
   // Los ajustes pueden cambiar mientras la isla está abierta.
   try {
     const { listen } = await import("@tauri-apps/api/event");
-    await listen<{ skipSeconds?: number }>("settings://changed", (event) => {
+    await listen<{ skipSeconds?: number; position?: Alignment }>("settings://changed", (event) => {
       if (event.payload?.skipSeconds) skipSeconds.value = event.payload.skipSeconds;
+      if (event.payload?.position) alignment.value = event.payload.position;
     });
   } catch {
     // Fuera de Tauri no hay eventos que escuchar.
@@ -263,7 +321,7 @@ function scrubTo(ratio: number) {
 </script>
 
 <template>
-  <div class="island-stage">
+  <div class="island-stage" :class="`align-${alignment}`">
     <div class="island-wrap">
       <!-- Tinte de la carátula sobre cada muesca. El relleno base de las
            muescas es negro, y sin esto quedan como dos parches oscuros a los
@@ -336,15 +394,28 @@ body,
   background: transparent !important;
 }
 
+.island-stage.align-left {
+  justify-items: start;
+  padding-left: 50px; /* WINDOW_PADDING + OVERSHOOT_MARGIN en lib.rs */
+}
+
+.island-stage.align-right {
+  justify-items: end;
+  padding-right: 50px;
+}
+
 .island-stage {
   width: 100vw;
   height: 100vh;
   display: grid;
   /* La ventana ya lleva el margen (WINDOW_PADDING en Rust): la isla va
      centrada dentro de ella, sin relleno extra que la desplace. */
-  /* Anclada arriba, no centrada: la ventana se encoge con retraso al
-     contraer la isla, y centrarla la haría desplazarse mientras tanto. */
+  /* La ventana tiene tamaño fijo y Rust recorta la zona visible, así que la
+     isla se encoge y crece hacia el centro sin depender del viewport. Con
+     alineación a un lado, la zona visible se pega a ese borde de la ventana
+     (ver `place_island` en lib.rs). */
   place-items: start center;
+  box-sizing: border-box;
   /* Sin relleno superior: la isla cuelga del borde de la pantalla. La ventana
      se coloca pegada al borde desde Rust, así que su primer píxel es también
      el primero de la isla. */

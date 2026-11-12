@@ -73,6 +73,23 @@ Eventos que emite el backend:
 - `power://changed` — el cargador se conectó o se retiró; lo escucha
   `src/lib/power.ts`. Solo se emite al cambiar el enchufe, no por el
   porcentaje, y respeta el ajuste `notifications`.
+- `power://low` — la batería cruzó el 20 % o el 10 % sin cargador. Se emite una
+  vez por umbral y se rearma al enchufar o pasar del 25 %. Lo escucha
+  `src/lib/systemEvents.ts`.
+- `toast://received` — notificación nueva de otra aplicación (`AppToast` en
+  `toasts.rs`). Solo se emite si `appNotifications` está activo y la app está
+  activada en `notificationApps`. **Contenido privado: nunca a logs ni a disco.**
+- `toasts://apps` — lista de aplicaciones detectadas, para el panel de ajustes.
+  `toasts.rs` las añade a `notification_apps` (desactivadas) al verlas; lo
+  escucha `SettingsApp.vue`.
+- `volume://changed` — el volumen o el silencio cambiaron desde el sistema
+  (`VolumeState` en `volume.rs`). Es un sondeo de 120 ms; la isla lo ignora con
+  el panel abierto, que ya muestra su propio control.
+
+Cada aviso del sistema (cargador, volumen, batería baja) tiene su interruptor
+propio —`notifyCharger`, `notifyVolume`, `notifyLowBattery`— además de
+`notifications`, el general. Un tipo nuevo necesita el suyo, y los dos se
+consultan en cada vuelta de su sondeo para que apagarlos surta efecto en caliente.
 
 Las structs de Rust serializan en **camelCase** (`#[serde(rename_all =
 "camelCase")]`). Las interfaces de TypeScript que las reflejan —`MediaState` en
@@ -92,12 +109,25 @@ visuales.
 
 ## Lo que no es obvio
 
-**La ventana y el CSS se animan por separado.** La ventana nativa cambia de
-tamaño de golpe; el CSS tarda medio segundo. Por eso al expandir la ventana
-crece *antes* de la animación, y al contraer espera a que termine. La isla va
-anclada al borde superior de la ventana, no centrada, porque la ventana se
-encoge con retraso. El contenido entra solo con opacidad: un `translateY` se
-percibe como un salto sobre una píldora que ya se redimensiona.
+**La ventana nativa tiene tamaño fijo y se recorta.** Mide siempre lo que cabe
+la isla más grande (540 px con la letra). Redimensionarla obligaba a WebView2 a
+actualizar su viewport unos fotogramas después y se veía el fotograma viejo (la
+píldora duplicada). En su lugar `place_island` la recorta con `SetWindowRgn` a
+la forma exacta de la isla: píldora redondeada más las dos muescas cóncavas.
+
+**El recorte debe seguir a la píldora del CSS.** Windows pinta de pálido
+cualquier píxel transparente dentro de la región, así que si el recorte cambia
+de golpe asoma una forma vieja durante los 0,58 s del CSS. `animate_island`
+(`lib.rs`) lo interpola en un hilo con la misma curva y duración que
+`.island-morph`, y `island_resize` se avisa a la vez que arranca el CSS, al
+crecer y al encoger. El recorte **no debe ir por delante** de la píldora (se
+vería una franja pálida) y las medidas de muesca y radio replican las del CSS:
+si cambias una, cambia la otra. Los ajustes de uno o dos píxeles de
+`set_island_region` evitan puntos y líneas claras en las muescas; no los
+simplifiques sin probar a la vista.
+
+El contenido entra solo con opacidad: un `translateY` se percibe como un salto
+sobre una píldora que ya se redimensiona.
 
 **No se usa `set_ignore_cursor_events`.** En Windows añade `WS_EX_TRANSPARENT`
 sobre una ventana transparente, lo que además de dejar pasar los clics impide

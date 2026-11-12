@@ -27,6 +27,45 @@ pub struct Lyrics {
 }
 
 
+/// Fragmentos del identificador de aplicación (AUMID) de SMTC que delatan un
+/// servicio de música en streaming o un navegador, donde viven sus webapps.
+///
+/// Se compara en minúsculas y por contenido: el AUMID cambia de forma según el
+/// reproductor (`Spotify.exe`, `SpotifyAB.SpotifyMusic_…!Spotify`,
+/// `AppleInc.AppleMusicWin_…!App`), pero siempre lleva el nombre.
+const STREAMING_SOURCES: &[&str] = &[
+    "spotify",
+    "applemusic",
+    "amazonmusic",
+    "amazon music",
+    "deezer",
+    "tidal",
+    "qobuz",
+    "pandora",
+    "youtubemusic",
+    "youtube-music",
+    "soundcloud",
+    "napster",
+    // Navegadores y webapps instaladas (PWA). SMTC no dice en qué web suena
+    // la pista, así que no se puede distinguir YouTube Music de un vídeo
+    // cualquiera: se asume streaming y la letra, si no existe, simplemente
+    // no aparece.
+    "chrome",
+    "msedge",
+    "firefox",
+    "brave",
+    "opera",
+    "vivaldi",
+];
+
+/// Indica si el reproductor de origen es un servicio de streaming musical.
+///
+/// Los reproductores locales (Groove, VLC, foobar…) quedan fuera a propósito.
+pub fn is_streaming_source(app_id: &str) -> bool {
+    let id = app_id.to_lowercase();
+    STREAMING_SOURCES.iter().any(|name| id.contains(name))
+}
+
 /// Letra de la última pista consultada, junto a su clave.
 ///
 /// Evita repetir la petición en cada sondeo mientras suene la misma canción.
