@@ -655,10 +655,13 @@ pub fn run() {
                 let mut last = MediaState::default();
                 loop {
                     let current = smtc::read_state();
-                    // Se compara sin la carátula: es un data URI de cientos de
-                    // kB y cotejarlo cuatro veces por segundo no aporta nada,
-                    // porque solo cambia cuando cambia el título.
+                    // La carátula es un data URI de cientos de kB y cotejarla
+                    // entera cuatro veces por segundo no aporta nada: se compara
+                    // su longitud, que basta para notar que llegó la imagen
+                    // (YouTube Music la publica después del título) o que
+                    // cambió la del tema anterior por la nueva.
                     let changed = current.title != last.title
+                        || current.artwork.len() != last.artwork.len()
                         || current.artist != last.artist
                         || current.playing != last.playing
                         || current.has_session != last.has_session

@@ -180,6 +180,18 @@ llamada, devuelve `true` y no mueve nada — un salto grande llega a expulsarlo 
 la sesión SMTC. Cuando `canSeek` es falso, los botones de salto quedan
 deshabilitados y la barra no responde al arrastre.
 
+**YouTube Music (y los reproductores web en general) tiene tres peculiaridades.**
+Publica el título antes que la miniatura, y durante un instante esta sigue
+siendo la de la canción anterior: por eso `cached_artwork` relee la carátula
+unas veces al principio de cada pista (`ARTWORK_SETTLE_READS`) en vez de
+guardar la primera, y el sondeo compara la *longitud* de la carátula para
+enterarse de que llegó. El artista llega como «Nombre - Topic» o «NombreVEVO» y
+el título con «(Official Video)» o «[Lyrics]»: `tidy_metadata` lo limpia en
+`read_state`, de modo que la isla, la clave de la carátula y la búsqueda de
+letras ven todos el mismo texto (tiene pruebas: `cargo test --lib`). Y la sesión
+«actual» de Windows es la última con la que se interactuó, no la que suena:
+`current_session` prefiere la que está reproduciendo.
+
 **Las consultas a LRCLIB necesitan dos pasadas.** Apple Music informa el artista
 como `Miranda! — El Templo del Pop`, con el álbum incluido: hay que recortar por
 el separador antes de consultar. Y `/api/get` exige que la duración coincida,

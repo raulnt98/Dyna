@@ -31,6 +31,170 @@ pub struct MediaState {
 /// Nombre del evento que recibe el frontend cuando cambia la reproducción.
 pub const MEDIA_EVENT: &str = "smtc://media-changed";
 
+/// Palabras que, dentro de un paréntesis o corchete, lo delatan como adorno del
+/// título y no como parte de él: «(Official Video)», «[Letra / Lyrics]»…
+const NOISE_STRONG: [&str; 14] = [
+    "official", "oficial", "video", "vídeo", "videoclip", "lyric", "lyrics", "letra", "audio",
+    "visualizer", "visualiser", "hd", "4k", "mv",
+];
+
+/// Palabras de relleno que acompañan a las anteriores sin delatar nada solas.
+const NOISE_FILLER: [&str; 8] = ["music", "con", "with", "de", "the", "version", "clip", "m"];
+
+/// Indica si el contenido de un paréntesis es solo adorno («Official Video»).
+///
+/// Todas sus palabras deben ser ruido y al menos una, de las fuertes: así
+/// «(Live)», «(Remastered 2011)» o «(feat. Ana)» se conservan.
+fn is_noise_group(inner: &str) -> bool {
+    let lower = inner.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    !words.is_empty()
+        && words.iter().all(|w| NOISE_STRONG.contains(w) || NOISE_FILLER.contains(w))
+        && words.iter().any(|w| NOISE_STRONG.contains(w))
+}
+
+/// Quita del título los grupos entre () y [] que son solo adorno.
+fn strip_noise_groups(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    let chars: Vec<char> = title.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let (open, close) = match chars[i] {
+            '(' => ('(', ')'),
+            '[' => ('[', ']'),
+            _ => {
+                out.push(chars[i]);
+                i += 1;
+                continue;
+            }
+        };
+        // Se busca el cierre; sin él, el carácter se trata como texto normal.
+        match chars[i + 1..].iter().position(|c| *c == close) {
+            Some(offset) => {
+                let inner: String = chars[i + 1..i + 1 + offset].iter().collect();
+                if is_noise_group(&inner) {
+                    i += offset + 2;
+                } else {
+                    out.push(open);
+                    i += 1;
+                }
+            }
+            None => {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Limpia título y artista tal como los publican los reproductores web.
+///
+/// YouTube Music informa al artista como «Nombre - Topic» o «NombreVEVO», y
+/// los títulos llevan «(Official Video)» o «[Lyrics]», a veces con el propio
+/// artista delante («Artista - Canción»). Eso ensucia la isla y además hace
+/// que LRCLIB no encuentre la letra. Se quita solo lo que es adorno: si el
+/// resultado quedara vacío se devuelve el texto original.
+pub fn tidy_metadata(title: &str, artist: &str) -> (String, String) {
+    // Artista: sin « - Topic» ni el «VEVO» pegado al nombre.
+    let mut clean_artist = artist.trim().to_string();
+    if clean_artist.to_lowercase().ends_with(" - topic") {
+        clean_artist.truncate(clean_artist.len() - " - topic".len());
+    }
+    if clean_artist.len() > 4 && clean_artist.ends_with("VEVO") {
+        clean_artist.truncate(clean_artist.len() - 4);
+    }
+    let clean_artist = clean_artist.trim().to_string();
+
+    // Título: sin adornos, y sin el artista repetido al principio.
+    let stripped = strip_noise_groups(title);
+    let mut clean_title = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    clean_title = clean_title
+        .trim_end_matches(|c: char| c.is_whitespace() || "-–—|".contains(c))
+        .to_string();
+
+    if !clean_artist.is_empty() {
+        let lower = clean_title.to_lowercase();
+        let prefix = clean_artist.to_lowercase();
+        for separator in [" - ", " – ", " — "] {
+            let full = format!("{prefix}{separator}");
+            if lower.starts_with(&full) {
+                clean_title = clean_title.chars().skip(full.chars().count()).collect();
+                break;
+            }
+        }
+    }
+
+    let title_out = if clean_title.trim().is_empty() {
+        title.trim().to_string()
+    } else {
+        clean_title.trim().to_string()
+    };
+    let artist_out = if clean_artist.is_empty() {
+        artist.trim().to_string()
+    } else {
+        clean_artist
+    };
+    (title_out, artist_out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tidy_metadata;
+
+    fn tidy(title: &str, artist: &str) -> (String, String) {
+        tidy_metadata(title, artist)
+    }
+
+    #[test]
+    fn quita_topic_y_adornos() {
+        assert_eq!(
+            tidy("Blinding Lights (Official Video)", "The Weeknd - Topic"),
+            ("Blinding Lights".into(), "The Weeknd".into())
+        );
+    }
+
+    #[test]
+    fn quita_el_artista_repetido_y_los_corchetes() {
+        assert_eq!(
+            tidy("The Weeknd - Blinding Lights [Lyrics]", "The Weeknd"),
+            ("Blinding Lights".into(), "The Weeknd".into())
+        );
+    }
+
+    #[test]
+    fn quita_vevo_y_varios_grupos() {
+        assert_eq!(
+            tidy("Song (Official Music Video) [HD]", "ArtistVEVO"),
+            ("Song".into(), "Artist".into())
+        );
+        assert_eq!(
+            tidy("Canción [Letra / Lyrics]", "Artista"),
+            ("Canción".into(), "Artista".into())
+        );
+    }
+
+    #[test]
+    fn conserva_lo_que_es_parte_del_titulo() {
+        for title in ["Song (Live)", "Song (feat. Ana)", "Song (Remastered 2011)", "Song (Remix)"] {
+            assert_eq!(tidy(title, "X"), (title.into(), "X".into()), "{title}");
+        }
+    }
+
+    #[test]
+    fn no_deja_el_titulo_vacio() {
+        assert_eq!(tidy("(Official Video)", "X"), ("(Official Video)".into(), "X".into()));
+    }
+
+    #[test]
+    fn un_parentesis_sin_cerrar_no_rompe_nada() {
+        assert_eq!(tidy("Song (Live", "X"), ("Song (Live".into(), "X".into()));
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
     use super::MediaState;
@@ -70,9 +234,36 @@ mod imp {
         (now_ticks - universal_time) as f64 / TICKS_PER_SECOND
     }
 
-    /// Sesión multimedia actualmente en primer plano, si existe.
+    /// Indica si la sesión está reproduciendo ahora mismo.
+    fn is_playing(session: &Session) -> bool {
+        session
+            .GetPlaybackInfo()
+            .and_then(|info| info.PlaybackStatus())
+            .map(|status| status == PlaybackStatus::Playing)
+            .unwrap_or(false)
+    }
+
+    /// Sesión multimedia que la isla debe mostrar y controlar.
+    ///
+    /// Windows llama «actual» a la última con la que se interactuó, y no tiene
+    /// por qué ser la que suena: con Spotify en pausa y YouTube Music
+    /// reproduciendo, la isla enseñaba y controlaba la pausada. Se prefiere la
+    /// actual si está sonando; si no, cualquiera que suene; y solo si no suena
+    /// ninguna, la actual.
     fn current_session() -> Option<Session> {
-        manager().ok()?.GetCurrentSession().ok()
+        let manager = manager().ok()?;
+        let current = manager.GetCurrentSession().ok();
+        if current.as_ref().is_some_and(is_playing) {
+            return current;
+        }
+        if let Ok(sessions) = manager.GetSessions() {
+            for session in sessions {
+                if is_playing(&session) {
+                    return Some(session);
+                }
+            }
+        }
+        current
     }
 
     /// Lee el estado completo de la sesión activa.
@@ -94,14 +285,17 @@ mod imp {
             .TryGetMediaPropertiesAsync()
             .and_then(|op| op.join())
         {
-            state.title = props
+            let raw_title = props
                 .Title()
                 .map(|h| h.to_string_lossy())
                 .unwrap_or_default();
-            state.artist = props
+            let raw_artist = props
                 .Artist()
                 .map(|h| h.to_string_lossy())
                 .unwrap_or_default();
+            // Se limpia aquí y no en la vista: así la isla, la clave de la
+            // carátula y la búsqueda de letras ven todos el mismo texto.
+            (state.title, state.artist) = super::tidy_metadata(&raw_title, &raw_artist);
             state.album = props
                 .AlbumTitle()
                 .map(|h| h.to_string_lossy())
@@ -160,28 +354,59 @@ mod imp {
     /// que informe un tamaño incorrecto.
     const MAX_ARTWORK_BYTES: u64 = 4 * 1024 * 1024;
 
-    /// Carátula ya decodificada, junto a la pista a la que pertenece.
-    ///
-    /// El estado se relee cada segundo para refrescar la posición, pero
-    /// decodificar la imagen en cada pasada sería un desperdicio: se reutiliza
-    /// mientras no cambie la pista.
-    static ARTWORK_CACHE: Mutex<Option<(String, String)>> = Mutex::new(None);
+    /// Carátula decodificada de la pista actual y cuántas veces se ha leído.
+    struct ArtworkEntry {
+        key: String,
+        artwork: String,
+        reads: u32,
+    }
 
-    /// Devuelve la carátula de la pista, decodificándola solo si cambió.
+    static ARTWORK_CACHE: Mutex<Option<ArtworkEntry>> = Mutex::new(None);
+
+    /// Lecturas tras las que una carátula con imagen se da por definitiva.
     ///
-    /// `key` identifica la pista actual (título y artista).
+    /// Los reproductores web (YouTube Music) publican el título antes que la
+    /// miniatura, y durante un instante esta sigue siendo la de la canción
+    /// anterior. Guardar la primera lectura dejaba esa imagen fija toda la
+    /// pista. A ~4 lecturas por segundo, 8 son unos dos segundos.
+    const ARTWORK_SETTLE_READS: u32 = 8;
+
+    /// Lecturas que se insisten si la pista no ha entregado ninguna imagen,
+    /// unos diez segundos: pasado ese tiempo se asume que no tiene carátula.
+    const ARTWORK_EMPTY_READS: u32 = 40;
+
+    /// Devuelve la carátula de la pista.
+    ///
+    /// El estado se relee cada 250 ms para refrescar la posición, y
+    /// decodificar la imagen en cada pasada sería un desperdicio: se reutiliza
+    /// mientras no cambie la pista, **salvo al principio**, cuando se vuelve a
+    /// leer unas cuantas veces hasta que la imagen se asienta (ver
+    /// `ARTWORK_SETTLE_READS`). `key` identifica la pista (título y artista).
     fn cached_artwork(props: &MediaProperties, key: &str) -> String {
+        let mut reads = 0;
         if let Ok(cache) = ARTWORK_CACHE.lock() {
-            if let Some((cached_key, artwork)) = cache.as_ref() {
-                if cached_key == key {
-                    return artwork.clone();
+            if let Some(entry) = cache.as_ref() {
+                if entry.key == key {
+                    let limit = if entry.artwork.is_empty() {
+                        ARTWORK_EMPTY_READS
+                    } else {
+                        ARTWORK_SETTLE_READS
+                    };
+                    if entry.reads >= limit {
+                        return entry.artwork.clone();
+                    }
+                    reads = entry.reads;
                 }
             }
         }
 
         let artwork = read_artwork(props);
         if let Ok(mut cache) = ARTWORK_CACHE.lock() {
-            *cache = Some((key.to_string(), artwork.clone()));
+            *cache = Some(ArtworkEntry {
+                key: key.to_string(),
+                artwork: artwork.clone(),
+                reads: reads + 1,
+            });
         }
         artwork
     }
