@@ -87,7 +87,7 @@ error de compilación.
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
 | Letras | `lyrics_current` | `lyrics.rs` |
 | Alimentación | `power_state` | `power.rs` |
-| Notificaciones | `toast_open` | `toasts.rs` |
+| Notificaciones | `toast_open`, `toasts_access`, `toasts_open_privacy` | `toasts.rs` |
 
 Eventos que emite el backend:
 
@@ -182,15 +182,25 @@ Cerrada, la isla se abre al tamaño del panel (330 × 108) con un icono grande, 
 título y un subtítulo: es el formato `data.deployed` de Wi-Fi, internet,
 volumen, batería baja y cargador desconectado (`NoticeIcon.vue` dibuja el icono;
 `level` añade una barra). El cargador conectado (`data.large`) y las
-notificaciones de apps (`data.tall`, 340 × 60) tienen su propio panel. Cada
+notificaciones de apps (`data.tall`) tienen su propio panel, del mismo tamaño que el expandido (330 × 108). Cada
 formato necesita su rama en `targetSize` (`IslandApp.vue`) y su estado en
 `TheIsland.vue`, o la ventana nativa no crece con él.
 
-El mensaje de una notificación que no cabe en su fila **se desplaza** (`ToastMarquee.vue`)
-en lugar de crecer o cortarse con «…»: la píldora y la ventana nativa son de tamaño
-fijo. La distancia se mide sobre el texto dibujado, pero cuánto debe durar el aviso
-se **estima** por caracteres (`toastDuration` en `IslandApp.vue`), porque el temporizador
-vive en la cola, antes de que haya nada dibujado.
+**El avatar de una notificación** es la foto del remitente, si no el icono de la app y si no la
+inicial. El icono sale de `AppDisplayInfo.GetLogo` (apps empaquetadas) o, para las clásicas, de
+`shell_icon.rs`. Ojo con el filtro `is_plausible`: los AUMID de apps sin identificador propio
+se derivan de su ruta (`{ID de carpeta}\Fortinet\FortiClient\FortiTray.exe`) y **llevan barras
+invertidas**; rechazarlas dejó sin icono a FortiClient. Solo se prohíbe `..`. Los avisos de
+globo de un icono de bandeja llegan con un AUMID inventado,
+`NotifyIconGeneratedAumid_<n>`: el número es una clave de
+`HKCUControl PanelNotifyIconSettings`, y su `ExecutablePath` da el programa. Ni ese AUMID
+ni los de ruta se pueden abrir con `toast_open` (no son entradas del menú Inicio).
+
+El mensaje de una notificación ocupa hasta **tres líneas** (`ToastMarquee.vue`) y, si pasa de ahí,
+**sube** en lugar de crecer o cortarse con «…»: la isla y la ventana nativa son de tamaño fijo. La
+distancia se mide sobre el texto dibujado, pero cuánto debe durar el aviso se **estima** por
+caracteres (`toastDuration` en `IslandApp.vue`), porque el temporizador vive en la cola, antes de que
+haya nada dibujado.
 
 `island_resize` reafirma la ventana por encima de las demás (`bring_to_front`,
 sin activarla) en cada cambio de tamaño: `always_on_top` se aplica una vez, y si

@@ -67,6 +67,9 @@ pub struct Settings {
     pub notification_apps: Vec<NotificationApp>,
     /// Segundos que saltan los botones de avance y retroceso.
     pub skip_seconds: f64,
+    /// Mostrar los segundos en la hora de la vista de inicio (la que sale cuando
+    /// no hay ningún medio).
+    pub home_seconds: bool,
 }
 
 impl Default for Settings {
@@ -88,6 +91,7 @@ impl Default for Settings {
             app_notifications: false,
             notification_apps: Vec::new(),
             skip_seconds: 10.0,
+            home_seconds: true,
         }
     }
 }

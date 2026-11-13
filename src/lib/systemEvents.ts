@@ -57,6 +57,8 @@ export interface AppToast {
   body: string;
   /** Foto de perfil del remitente (data URI), si el ajuste está activo y el aviso la trae. */
   avatar?: string | null;
+  /** Logo de la aplicación (data URI), que la isla usa de avatar si no hay foto del remitente. */
+  icon?: string | null;
 }
 
 /** Comprime espacios y saltos de línea: en una sola fila no tienen utilidad. */

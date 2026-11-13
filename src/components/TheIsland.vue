@@ -76,6 +76,8 @@ const props = defineProps<{
   collapsedStyle?: "pill" | "tab";
   /** Segundos que saltan los botones de avance y retroceso. */
   skipSeconds: number;
+  /** Segundos en la hora de la vista de inicio. Sin valor se muestran, como por defecto. */
+  homeSeconds?: boolean;
   formatTime: (seconds: number) => string;
 }>();
 
@@ -104,7 +106,13 @@ onUnmounted(() => {
   if (homeTimer !== undefined) window.clearInterval(homeTimer);
 });
 const homeTime = computed(() =>
-  new Intl.DateTimeFormat("es", { hour: "2-digit", minute: "2-digit", hour12: false }).format(now.value),
+  new Intl.DateTimeFormat("es", {
+    hour: "2-digit",
+    minute: "2-digit",
+    // `undefined` omite los segundos; `!== false` para que, sin la propiedad, salgan.
+    second: props.homeSeconds !== false ? "2-digit" : undefined,
+    hour12: false,
+  }).format(now.value),
 );
 const homeDate = computed(() =>
   new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" }).format(now.value),
@@ -146,7 +154,7 @@ const showsTab = computed(
 const chargePercent = computed(() => Number(props.notice?.data?.percent ?? 0));
 
 /**
- * Notificación de otra aplicación: una píldora alta (340 × 60) con el remitente
+ * Notificación de otra aplicación: el panel completo (330 × 108) con el remitente
  * y el mensaje. Igual que el aviso del cargador, reutiliza `is-expanded` para
  * que las muescas y el recorte de la ventana (que se basa en la altura) encajen.
  */
@@ -156,7 +164,12 @@ const showsPanel = computed(() => showsCharge.value || showsDeployed.value || sh
 const toastApp = computed(() => String(props.notice?.data?.app ?? ""));
 const toastTitle = computed(() => String(props.notice?.data?.title ?? ""));
 const toastBody = computed(() => String(props.notice?.data?.body ?? ""));
-/** Foto del remitente, si la hay; si no, el avatar es la inicial de la aplicación. */
+/** Logo de la aplicación, que hace de avatar cuando no hay foto del remitente. */
+const toastIcon = computed(() => {
+  const icon = props.notice?.data?.icon;
+  return typeof icon === "string" && icon.startsWith("data:image/") ? icon : "";
+});
+/** Foto del remitente, si la hay; si no, el logo de la app, y si tampoco, la inicial. */
 const toastAvatar = computed(() => {
   const avatar = props.notice?.data?.avatar;
   return typeof avatar === "string" && avatar.startsWith("data:image/") ? avatar : "";
@@ -299,13 +312,11 @@ function onSeekKeydown(event: KeyboardEvent) {
       },
       `mode-${mode}`,
       { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
-      showsToast && !expanded
-        ? 'w-[340px] h-[60px] rounded-[24px]'
-        : showsTab
-          ? 'w-[48px] h-[8px] rounded-[4px]'
-          : showsPill && !showsCharge && !showsDeployed
-            ? 'h-[34px] rounded-[18px]'
-            : 'w-[330px] h-[108px] rounded-[24px]',
+      showsTab
+        ? 'w-[48px] h-[8px] rounded-[4px]'
+        : showsPill && !showsCharge && !showsDeployed && !showsToast
+          ? 'h-[34px] rounded-[18px]'
+          : 'w-[330px] h-[108px] rounded-[24px]',
     ]"
     :style="compactWidth"
     role="button"
@@ -373,16 +384,17 @@ function onSeekKeydown(event: KeyboardEvent) {
 
     <!-- Notificación de otra aplicación. Cada una lleva `key` para que el
          contenido se renueve al relevarse por otra aún con la isla alta. -->
-    <div v-if="showsToast" :key="`${toastApp}${toastTitle}${toastBody}`" class="absolute inset-0 z-1 isolate flex animate-[island-fade-in_.3s_ease-out_.14s_both] items-center gap-[11px] pr-[18px] pl-4" aria-hidden="true">
-      <img v-if="toastAvatar" :src="toastAvatar" alt="" class="size-[34px] flex-none rounded-full object-cover" />
-      <span v-else class="grid size-[34px] flex-none place-items-center rounded-full bg-green text-[15px] font-bold text-[#0a0c0a]">{{ toastInitial }}</span>
-      <span class="grid min-w-0 flex-1 gap-1 text-[9px]">
-        <span class="text-[9.5px] leading-[1.45] font-semibold tracking-[.06em] text-[#d4d4db] uppercase">{{ toastApp }}</span>
+    <div v-if="showsToast" :key="`${toastApp}${toastTitle}${toastBody}`" class="absolute inset-0 z-1 isolate flex animate-[island-fade-in_.3s_ease-out_.14s_both] items-center gap-3.5 px-5" aria-hidden="true">
+      <img v-if="toastAvatar" :src="toastAvatar" alt="" class="size-11 flex-none rounded-full object-cover" />
+      <img v-else-if="toastIcon" :src="toastIcon" alt="" class="size-11 flex-none rounded-full bg-white/12 object-contain p-1.5" />
+      <span v-else class="grid size-11 flex-none place-items-center rounded-full bg-green text-[19px] font-bold text-[#0a0c0a]">{{ toastInitial }}</span>
+      <span class="grid min-w-0 flex-1 gap-1">
+        <span class="text-[10px] leading-[1.45] font-semibold tracking-[.06em] text-[#d4d4db] uppercase">{{ toastApp }}</span>
         <!-- Sin cuerpo, el texto único ocupa la fila del mensaje y puede ir a dos
-             líneas. Con cuerpo, cada fila es una sola línea: la píldora de 60 px
-             no da más de sí. -->
+             líneas. Con cuerpo, el mensaje ocupa hasta tres y, si pasa de ahí, sube
+             (ToastMarquee): la isla no cambia de tamaño. -->
         <strong
-          class="text-[10px] leading-[1.2] text-white/96"
+          class="text-[13px] leading-[1.2] text-white/96"
           :class="toastBody
             ? 'truncate font-semibold'
             : 'overflow-hidden font-medium [overflow-wrap:anywhere] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]'"

@@ -1,6 +1,6 @@
 [package]
 name = "dynamic-island"
-version = "0.3.0"
+version = "0.3.1"
 description = "Dynamic Island para escritorio Windows"
 authors = ["Raul Nuñez"]
 license = "MIT"
@@ -19,6 +19,8 @@ serde = { version = "1", features = ["derive"] }
 base64 = "0.22"
 serde_json = "1"
 ureq = { version = "3.5", features = ["json"] }
+# Codifica el icono de una aplicación clásica (shell_icon.rs). Ya la usa Tauri.
+png = "0.18"
 
 [target."cfg(windows)".dependencies]
 # Lectura de solo lectura de la base de datos de notificaciones de Windows, para
@@ -47,6 +49,11 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dwm",
     # GetSystemPowerStatus: bateria y corriente, para el aviso del cargador.
     "Win32_System_Power",
+    # IShellItemImageFactory: el icono de una aplicación clásica, como en el menú
+    # Inicio (ver shell_icon.rs).
+    "Win32_UI_Shell",
+    # RegGetValueW: la clave del icono de bandeja que genera un aviso de globo.
+    "Win32_System_Registry",
     # WlanEnumInterfaces y WlanQueryInterface: red Wi-Fi actual, para el aviso
     # al conectarse.
     "Win32_NetworkManagement_WiFi",

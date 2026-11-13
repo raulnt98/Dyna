@@ -19,17 +19,19 @@ import type { Activity } from "@/lib/activities";
 /**
  * Cuánto debe quedarse en pantalla una notificación según su mensaje.
  *
- * Un texto más ancho que la fila se desplaza (ver ToastMarquee.vue), y el aviso
- * tiene que durar lo que tarda en llegar al final, o se retiraría a medio leer.
- * Se **estima** a partir de los caracteres, como `noticeWidth()`: aquí no hay
- * texto dibujado que medir. A 11,5 px un carácter ocupa unos 5,7 px y la fila
- * mide unos 260; el desplazamiento arranca a los 0,9 s, va a 80 px/s (SPEED en
- * ToastMarquee.vue) y se queda un par de segundos en el final.
+ * El mensaje ocupa hasta tres líneas y, si pasa de ahí, sube hasta enseñar el
+ * final (ver ToastMarquee.vue); el aviso tiene que durar lo que tarda en llegar, o
+ * se retiraría a medio leer. Se **estima** a partir de los caracteres, como
+ * `noticeWidth()`: aquí no hay texto dibujado que medir. A 12,5 px un carácter ocupa
+ * unos 6,2 px y la fila mide unos 232, así que caben unos 37 por línea. Cada línea
+ * de más mide 16,25 px; el desplazamiento arranca a los 0,9 s, va a 14 px/s (SPEED
+ * en ToastMarquee.vue) y se queda un par de segundos en el final.
  */
 function toastDuration(body: string): number {
-  const overflow = Math.max(0, body.length * 5.7 - 260);
+  const lines = Math.ceil(body.length / 37);
+  const overflow = Math.max(0, lines - 3) * 16.25;
   if (overflow === 0) return 5500;
-  const ms = 900 + ((overflow + 22) / 80) * 1000 + 2200;
+  const ms = 900 + (overflow / 14) * 1000 + 2200;
   return Math.min(20000, Math.max(5500, Math.round(ms)));
 }
 
@@ -38,8 +40,6 @@ const COMPACT = { width: 116, height: 34 };
 /** Pestaña mínima de la vista minimizada alternativa. Su alto (8 px) lo usa Rust para elegir la muesca. */
 const TAB = { width: 48, height: 8 };
 const EXPANDED = { width: 330, height: 108 };
-/** Notificación de otra aplicación: más alta que la compacta, sin llegar al panel. */
-const TOAST = { width: 340, height: 60 };
 
 /** Con la letra abierta la isla se alarga para dejarle sitio al panel. */
 const WITH_LYRICS = { width: 540, height: 108 };
@@ -138,7 +138,7 @@ useToastEvents((toast) => {
     label: `${toast.app} · ${text}`,
     duration: toastDuration(body),
     stack: true,
-    data: { tall: true, id: toast.id, app: toast.app, title, body, avatar: toast.avatar ?? null },
+    data: { tall: true, id: toast.id, app: toast.app, title, body, avatar: toast.avatar ?? null, icon: toast.icon ?? null },
   });
 });
 
@@ -281,8 +281,8 @@ const targetSize = computed(() => {
   if (!expanded.value) {
     // El aviso del cargador crece al tamaño del panel (ver `showsCharge`).
     if (notice.value?.data?.large || notice.value?.data?.deployed) return EXPANDED;
-    // La notificación de otra app: píldora alta, con remitente y mensaje.
-    if (notice.value?.data?.tall) return TOAST;
+    // La notificación de otra app mide lo mismo que el panel: avatar, remitente y mensaje.
+    if (notice.value?.data?.tall) return EXPANDED;
     return notice.value
       ? { width: noticeWidth(notice.value.label), height: COMPACT.height }
       : collapsedStyle.value === "tab"
@@ -402,13 +402,17 @@ function handleIslandKeydown(event: KeyboardEvent) {
 
 /** Segundos de salto, leídos de los ajustes del usuario. */
 const skipSeconds = ref(10);
+/** Segundos en la hora de la vista de inicio. Con `!== undefined`, no por verdad: `false` es un valor válido. */
+const homeSeconds = ref(true);
 
 onMounted(async () => {
   const stored = await invokeResult<{
     skipSeconds?: number;
     position?: Alignment;
     collapsedStyle?: CollapsedStyle;
+    homeSeconds?: boolean;
   }>("settings_get");
+  if (stored?.homeSeconds !== undefined) homeSeconds.value = stored.homeSeconds;
   if (stored?.skipSeconds) skipSeconds.value = stored.skipSeconds;
   if (stored?.position) alignment.value = stored.position;
   if (stored?.collapsedStyle) collapsedStyle.value = stored.collapsedStyle;
@@ -425,7 +429,9 @@ onMounted(async () => {
       skipSeconds?: number;
       position?: Alignment;
       collapsedStyle?: CollapsedStyle;
+      homeSeconds?: boolean;
     }>("settings://changed", (event) => {
+      if (event.payload?.homeSeconds !== undefined) homeSeconds.value = event.payload.homeSeconds;
       if (event.payload?.skipSeconds) skipSeconds.value = event.payload.skipSeconds;
       if (event.payload?.position) alignment.value = event.payload.position;
       if (event.payload?.collapsedStyle) collapsedStyle.value = event.payload.collapsedStyle;
@@ -507,6 +513,7 @@ function scrubTo(ratio: number) {
       :track-progress="trackProgress"
       :can-seek="canSeek"
       :skip-seconds="skipSeconds"
+      :home-seconds="homeSeconds"
       :lyrics-available="lyricsAvailable"
       :lyrics-open="lyricsOpen"
       :lyric-lines="lyricLines"

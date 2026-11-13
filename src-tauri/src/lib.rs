@@ -3,6 +3,7 @@ mod lyrics;
 mod network;
 mod power;
 mod settings;
+mod shell_icon;
 mod smtc;
 mod toasts;
 mod volume;
@@ -528,6 +529,18 @@ fn lyrics_current() -> lyrics::Lyrics {
 
 /// Estado actual de la batería y la corriente.
 ///
+/// Estado del permiso de Windows para leer notificaciones (ver `toasts::access_status`).
+#[tauri::command(async)]
+fn toasts_access() -> &'static str {
+    toasts::access_status()
+}
+
+/// Abre la página de Windows donde se concede el acceso a notificaciones.
+#[tauri::command(async)]
+fn toasts_open_privacy() -> bool {
+    toasts::open_privacy_settings()
+}
+
 /// Abre la aplicación que emitió un aviso, al hacer clic en él en la isla.
 ///
 /// Recibe el id del aviso, no un identificador de aplicación: ver `toasts::open`.
@@ -600,6 +613,9 @@ fn settings_close(app: tauri::AppHandle) {
 /// Abre el panel de ajustes, creándolo si aún no existe.
 fn open_settings(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
+        // Una ventana minimizada sigue existiendo y `show()` no la restaura: sin
+        // `unminimize()` el clic en «Ajustes…» no hacía nada visible.
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         return;
@@ -721,6 +737,8 @@ pub fn run() {
             volume_toggle_mute,
             lyrics_current,
             toast_open,
+            toasts_access,
+            toasts_open_privacy,
             power_state
         ])
         .setup(|app| {

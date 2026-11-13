@@ -28,10 +28,82 @@ pub struct AppToast {
     /// Foto de perfil del remitente como data URI, si el ajuste está activo y el
     /// aviso la trae (ver `avatars.rs`). **Contenido privado.**
     pub avatar: Option<String>,
+    /// Logo de la aplicación como data URI. No es privado y no sale a la red: lo
+    /// da Windows. La isla lo usa de avatar cuando no hay foto del remitente.
+    pub icon: Option<String>,
 }
 
 /// Evento con la lista de aplicaciones detectadas, para el panel de ajustes.
 pub const APPS_EVENT: &str = "toasts://apps";
+
+/// Logos ya leídos, por identificador de aplicación. Un `None` también se recuerda:
+/// una app sin logo legible no se vuelve a intentar con cada aviso.
+static LOGOS: std::sync::Mutex<Vec<(String, Option<String>)>> = std::sync::Mutex::new(Vec::new());
+const LOGOS_LEN: usize = 32;
+
+/// Tamaño máximo de un logo, por si una app entrega algo desproporcionado.
+#[cfg(windows)]
+const MAX_LOGO_BYTES: u32 = 128 * 1024;
+
+/// Logo de la aplicación que emitió el aviso, como data URI.
+///
+/// Lo pide Windows, sin red ni lectura de contenido del usuario: el logo del
+/// paquete (`AppDisplayInfo.GetLogo`) para las aplicaciones empaquetadas (Teams,
+/// WhatsApp de la Store, Outlook nuevo) y, para las clásicas, el icono del menú
+/// Inicio (`shell_icon.rs`). Si ninguno existe, la isla vuelve a la inicial.
+#[cfg(windows)]
+fn app_logo(info: Option<&windows::ApplicationModel::AppInfo>, key: &str) -> Option<String> {
+    let info = info?;
+    if key.is_empty() {
+        return None;
+    }
+    if let Some(hit) = LOGOS
+        .lock()
+        .ok()
+        .and_then(|cache| cache.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()))
+    {
+        return hit;
+    }
+    // Primero el logo del paquete; si la app es clásica y no lo tiene, el icono
+    // con el que el Shell la enseña en el menú Inicio.
+    let logo = read_logo(info).or_else(|| crate::shell_icon::for_aumid(key));
+    if let Ok(mut cache) = LOGOS.lock() {
+        if cache.len() >= LOGOS_LEN {
+            cache.remove(0);
+        }
+        cache.push((key.to_string(), logo.clone()));
+    }
+    logo
+}
+
+#[cfg(windows)]
+fn read_logo(info: &windows::ApplicationModel::AppInfo) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine;
+    use windows::Foundation::Size;
+    use windows::Storage::Streams::DataReader;
+
+    let reference = info
+        .DisplayInfo()
+        .ok()?
+        .GetLogo(Size { Width: 64.0, Height: 64.0 })
+        .ok()?;
+    let stream = reference.OpenReadAsync().ok()?.join().ok()?;
+    let size = stream.Size().ok()? as u32;
+    if size == 0 || size > MAX_LOGO_BYTES {
+        return None;
+    }
+    // El stream es !Send: se lee aquí mismo, sin cruzar de hilo.
+    let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0).ok()?).ok()?;
+    let loaded = reader.LoadAsync(size).ok()?.join().ok()?;
+    if loaded == 0 {
+        return None;
+    }
+    let mut bytes = vec![0u8; loaded as usize];
+    reader.ReadBytes(&mut bytes).ok()?;
+    let mime = crate::avatars::sniff(&bytes).unwrap_or("image/png");
+    Some(format!("data:{mime};base64,{}", BASE64.encode(&bytes)))
+}
 
 /// Identificadores de aplicación de los avisos recientes, para abrirla al hacer
 /// clic. Se guardan aquí y no se mandan al frontend: el comando `toast_open`
@@ -70,11 +142,8 @@ pub fn open(id: u32) -> bool {
         return false;
     };
     // El identificador va tal cual a una ruta de `shell:AppsFolder`: solo se
-    // admiten los caracteres de un AUMID normal, por si llegara algo extraño.
-    let valid = aumid
-        .chars()
-        .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '!' | '{' | '}' | ' ' | '('  | ')'));
-    if !valid {
+    // admiten los caracteres de un AUMID, por si llegara algo extraño.
+    if !crate::shell_icon::is_plausible(&aumid) {
         return false;
     }
     // CREATE_NO_WINDOW: `explorer.exe` no debe abrir consola.
@@ -87,6 +156,49 @@ pub fn open(id: u32) -> bool {
 
 #[cfg(not(windows))]
 pub fn open(_id: u32) -> bool {
+    false
+}
+
+/// Estado del permiso de Windows para leer notificaciones, sin pedirlo.
+///
+/// Devuelve `allowed`, `denied`, `unspecified` (Windows aún no lo ha concedido ni
+/// negado) o `unavailable` (la API no existe en este equipo). Sin `allowed` el
+/// sondeo no lee nada y no avisa, así que el panel de ajustes lo enseña: antes un
+/// permiso sin conceder dejaba la opción activada y la isla muda, sin explicación.
+#[cfg(windows)]
+pub fn access_status() -> &'static str {
+    use windows::UI::Notifications::Management::{
+        UserNotificationListener, UserNotificationListenerAccessStatus as Access,
+    };
+    let Ok(listener) = UserNotificationListener::Current() else {
+        return "unavailable";
+    };
+    match listener.GetAccessStatus() {
+        Ok(status) if status == Access::Allowed => "allowed",
+        Ok(status) if status == Access::Denied => "denied",
+        Ok(status) if status == Access::Unspecified => "unspecified",
+        _ => "unavailable",
+    }
+}
+
+#[cfg(not(windows))]
+pub fn access_status() -> &'static str {
+    "unavailable"
+}
+
+/// Abre la página de Windows donde se concede el acceso a notificaciones.
+#[cfg(windows)]
+pub fn open_privacy_settings() -> bool {
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("explorer.exe")
+        .arg("ms-settings:privacy-notifications")
+        .creation_flags(0x0800_0000)
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(not(windows))]
+pub fn open_privacy_settings() -> bool {
     false
 }
 
@@ -171,15 +283,19 @@ fn fetch(known: &HashSet<u32>, details: bool) -> Option<(Vec<u32>, Vec<AppToast>
             continue;
         }
 
-        let app = notification
-            .AppInfo()
-            .and_then(|info| info.DisplayInfo())
-            .and_then(|display| display.DisplayName())
+        let info = notification.AppInfo().ok();
+        let app = info
+            .as_ref()
+            .and_then(|info| info.DisplayInfo().ok())
+            .and_then(|display| display.DisplayName().ok())
             .map(|name| name.to_string_lossy())
             .unwrap_or_default();
-        if let Ok(aumid) = notification.AppInfo().and_then(|info| info.AppUserModelId()) {
-            remember_launch(id, aumid.to_string_lossy());
-        }
+        let aumid = info
+            .as_ref()
+            .and_then(|info| info.AppUserModelId().ok())
+            .map(|aumid| aumid.to_string_lossy())
+            .unwrap_or_default();
+        remember_launch(id, aumid.clone());
 
         // Sin `details` solo interesa descubrir la aplicación: el texto no se lee.
         if !details {
@@ -189,6 +305,7 @@ fn fetch(known: &HashSet<u32>, details: bool) -> Option<(Vec<u32>, Vec<AppToast>
                 title: String::new(),
                 body: String::new(),
                 avatar: None,
+                icon: None,
             });
             continue;
         }
@@ -223,6 +340,7 @@ fn fetch(known: &HashSet<u32>, details: bool) -> Option<(Vec<u32>, Vec<AppToast>
             title,
             body: lines.join(" "),
             avatar: None,
+            icon: app_logo(info.as_ref(), &aumid),
         });
     }
     Some((ids, fresh))

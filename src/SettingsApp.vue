@@ -39,6 +39,8 @@ interface Settings {
   notificationApps: { name: string; enabled: boolean }[];
   /** Segundos que saltan los botones de avance y retroceso. */
   skipSeconds: number;
+  /** Segundos en la hora de la vista de inicio. */
+  homeSeconds: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -58,12 +60,25 @@ const DEFAULTS: Settings = {
   appNotifications: false,
   notificationApps: [],
   skipSeconds: 10,
+  homeSeconds: true,
 };
 
 /** Máximo de la separación superior, que es también el del slider. */
 const MARGIN_MAX = 120;
 
 const settings = ref<Settings>({ ...DEFAULTS });
+
+/**
+ * Permiso de Windows para leer notificaciones (`allowed`, `denied`, `unspecified` o
+ * `unavailable`). Sin `allowed` la isla no ve ninguna notificación y no lo dice por
+ * su cuenta, así que el panel lo enseña. Fuera de la app de escritorio no hay nada
+ * que comprobar y se da por bueno.
+ */
+const access = ref("allowed");
+async function refreshAccess() {
+  const status = await call<string>("toasts_access");
+  if (status) access.value = status;
+}
 const saved = ref(false);
 let loading = true;
 
@@ -78,6 +93,11 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 }
 
 onMounted(async () => {
+  void refreshAccess();
+  // El usuario cambia el permiso en la configuración de Windows y vuelve aquí:
+  // se vuelve a comprobar al recuperar el foco, sin que tenga que reabrir el panel.
+  window.addEventListener("focus", refreshAccess);
+
   const stored = await call<Settings>("settings_get");
   if (stored) settings.value = { ...DEFAULTS, ...stored };
   loading = false;
@@ -209,6 +229,11 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         </div>
 
         <SettingsToggle
+          v-model="settings.homeSeconds"
+          name="Segundos en la hora"
+          desc="Muestra los segundos en la hora que enseña la isla cuando no hay nada sonando."
+        />
+        <SettingsToggle
           v-model="settings.alwaysOnTop"
           name="Siempre visible"
           desc="Mantiene la isla por encima de otras ventanas."
@@ -303,6 +328,28 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
           name="Mostrar notificaciones en la isla"
           desc="Lee las notificaciones de Windows para enseñar remitente y mensaje. Nada se guarda. Con WhatsApp activado, se descarga además la foto de perfil del remitente desde los servidores de WhatsApp. Requiere tener activado el acceso a notificaciones en Windows."
         />
+
+        <!-- Sin permiso de Windows la opción parece activa pero no llega nada. -->
+        <div
+          v-if="settings.appNotifications && access !== 'allowed'"
+          class="flex items-center justify-between gap-3 bg-[rgba(255,138,112,.08)] px-3.5 py-[11px] text-[11.5px] leading-[1.45] text-[#ffb08a]"
+          role="alert"
+        >
+          <span>
+            <template v-if="access === 'unavailable'">
+              Este equipo no permite leer las notificaciones de otras aplicaciones.
+            </template>
+            <template v-else>
+              Windows no deja que la isla lea tus notificaciones. Actívalo en
+              Configuración → Privacidad y seguridad → Notificaciones.
+            </template>
+          </span>
+          <button
+            v-if="access !== 'unavailable'"
+            class="flex-none cursor-pointer rounded-lg border border-[rgba(255,138,112,.35)] bg-transparent px-[11px] py-[6px] text-[11.5px] text-[#ffb08a] transition-colors duration-150 hover:bg-[rgba(255,138,112,.14)]"
+            @click="call('toasts_open_privacy')"
+          >Abrir Windows</button>
+        </div>
 
         <template v-if="settings.appNotifications">
           <p

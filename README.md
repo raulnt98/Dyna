@@ -33,6 +33,22 @@ Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
 
+### Novedades de la 0.3.1
+
+- **Iconos en las notificaciones de apps:** el avatar es ahora el icono de la
+  aplicación cuando no hay foto del remitente. Funciona con las apps de la Store,
+  con las clásicas (Outlook de escritorio, antivirus…) y con los avisos de globo de
+  un icono de la bandeja (FortiClient, clientes VPN). Sin red.
+- **Diagnóstico del permiso de notificaciones:** si Windows no deja que la isla
+  lea las notificaciones, Ajustes muestra un aviso naranja con un botón **Abrir
+  Windows**. Antes la opción parecía activa y la isla se quedaba muda sin explicar
+  por qué.
+- **Segundos en la hora** de la vista de inicio, con un ajuste para quitarlos.
+- **Arreglo:** «Ajustes…» no hacía nada si la ventana de ajustes estaba
+  minimizada.
+- **Documentación:** cómo usar solo la isla, sin el globo de Windows. Ver
+  [Usar solo la isla](#usar-solo-la-isla-sin-el-globo-de-windows).
+
 ### Novedades de la 0.3.0
 
 - **Avisos desplegados:** cargador, volumen, batería baja, Wi-Fi e internet abren la
@@ -42,7 +58,7 @@ instalador en `src-tauri/target/release/bundle/nsis/`.
 - **Vista de inicio:** sin medios, la isla enseña la hora y la fecha en lugar de un
   reproductor vacío. Ver [Vista de inicio](#vista-de-inicio).
 - **Notificaciones:** foto del remitente de WhatsApp, mensajes largos que se
-  desplazan y un clic que abre la app. Ver [Notificaciones de otras
+  se desplazan y un clic que abre la app. Ver [Notificaciones de otras
   aplicaciones](#notificaciones-de-otras-aplicaciones).
 - **Animaciones en todos los equipos:** la isla ya no se queda sin animar cuando
   Windows tiene desactivados los efectos de animación.
@@ -205,7 +221,7 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
 │       ├── TheIsland.vue              # La píldora, compartida por demo e isla real
 │       ├── NoticeIcon.vue             # Icono de cada tipo de aviso
 │       ├── WifiGlyph.vue              # Icono de Wi-Fi con arcos que se encienden
-│       ├── ToastMarquee.vue           # Mensaje largo que se desplaza en su línea
+│       ├── ToastMarquee.vue           # Mensaje de la notificación: hasta tres líneas, y si pasa, se desplaza
 │       ├── SettingsSelect.vue         # Desplegable propio del panel de ajustes
 │       ├── SettingsToggle.vue         # Fila con interruptor del panel de ajustes
 │       └── ui/
@@ -227,6 +243,7 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
         ├── lyrics.rs                  # Letras desde LRCLIB
         ├── toasts.rs                  # Notificaciones de otras aplicaciones y apertura de su app
         ├── avatars.rs                 # Foto del remitente (WhatsApp), desde la base de Windows
+        ├── shell_icon.rs              # Icono de una aplicación clásica, como en el menú Inicio
         ├── settings.rs                # Ajustes y persistencia
         └── main.rs                    # Entrada de la aplicación Windows
 ```
@@ -314,8 +331,7 @@ para la ventana nativa:
 | --- | --- |
 | Pestaña mínima | `48 × 8 px` |
 | Píldora compacta | `116 × 34 px` (más ancha si el aviso lo pide) |
-| Notificación de otra app | `340 × 60 px` |
-| Panel expandido y avisos desplegados | `330 × 108 px` |
+| Panel expandido, avisos desplegados y notificaciones de otras apps | `330 × 108 px` |
 | Panel con letra | `540 × 108 px` |
 
 La forma que recorta Rust se elige por la altura (≤ 12 px pestaña, ≤ 40 píldora,
@@ -513,6 +529,7 @@ confirmación.
 | Separación superior | Distancia al borde superior de la pantalla, de 0 a 120 px. |
 | Siempre visible | Mantiene o no la isla por encima de otras ventanas. |
 | Vista minimizada | Cómo se ve la isla cerrada: **píldora** (la de siempre) o **pestaña mínima**, una leve lengüeta de 48 × 8 px pegada al borde que casi no tapa las pestañas del navegador. Un clic la abre y otro la cierra. Los avisos siguen apareciendo igual. |
+| Segundos en la hora | Muestra o no los segundos en la hora de la [vista de inicio](#vista-de-inicio). Activado por defecto. |
 | Iniciar con Windows | Registra la app en el arranque del usuario actual. |
 | Letras sincronizadas | Busca la letra en LRCLIB. Al desactivarlo, no sale ninguna consulta del equipo. |
 | Salto de los botones | Segundos que avanzan o retroceden los botones: 5, 10, 15 o 30. |
@@ -560,7 +577,7 @@ Detalles que conviene saber:
 
 Sin nada sonando, la isla no enseña un reproductor vacío con «Sin reproducción» y
 una barra a cero: muestra la **hora** (en la píldora cerrada) y la **hora con la
-fecha** (abierta). Se activa sola cuando no hay ninguna sesión multimedia, o hay
+fecha** (abierta), con segundos; se pueden quitar en ajustes. Se activa sola cuando no hay ninguna sesión multimedia, o hay
 una vacía y parada. Una pista en pausa cuenta como medio y sigue mostrando el
 reproductor, por si quieres reanudarla. En cuanto algo empieza a sonar, la isla
 vuelve sola al reproductor.
@@ -568,24 +585,38 @@ vuelve sola al reproductor.
 ### Notificaciones de otras aplicaciones
 
 La isla puede mostrar las notificaciones de Windows de otras apps: una píldora
-más alta (340 × 60 px) con la aplicación, el remitente y el mensaje. Se lee a
+a tamaño de panel (330 × 108 px) con la aplicación, el remitente y el mensaje. Se lee a
 través de `UserNotificationListener`, así que Windows debe tener permitido el
 acceso a notificaciones (Configuración → Privacidad y seguridad →
 Notificaciones).
 
 - **Apagado por defecto**, porque lee contenido privado. Se activa en ajustes.
+- **Si no ves ninguna notificación**, mira el panel de ajustes: si Windows no ha
+  concedido el acceso, aparece un aviso naranja con un botón **Abrir Windows**
+  (Configuración → Privacidad y seguridad → Notificaciones). Además, una app solo
+  aparece en la lista cuando envía su primera notificación, y empieza desactivada:
+  activa «Mostrar notificaciones en la isla», recibe un mensaje de WhatsApp, abre
+  los ajustes y actívalo en la lista.
 - **No sale nada del equipo** (salvo la foto de WhatsApp, ver abajo): el texto pasa
   del sistema a la ventana de la isla y no se guarda en disco ni en registros. Lo
   único que se persiste es el nombre de cada aplicación detectada.
 - **Tú eliges qué apps**: la isla las va detectando y las lista en ajustes, todas
   desactivadas. Solo se muestran las que actives. Aparecen al llegar una
   notificación o si ya hay alguna en el centro de notificaciones.
+- **El avatar** es la foto del remitente si la hay (WhatsApp, ver abajo); si no, el
+  **icono de la aplicación**, que da el propio Windows sin red: el logo del paquete
+  en las aplicaciones de la Store, y el icono con el que el menú Inicio enseña la
+  app en las clásicas (Outlook de escritorio, antivirus…). Los avisos de globo de un
+  icono de la bandeja (FortiClient, clientes VPN) se resuelven por el registro de
+  iconos de bandeja de Windows. Si no se puede leer, la inicial de su nombre.
 - **Varias seguidas se apilan** en lugar de reemplazarse: dos mensajes son dos
   mensajes.
-- **Un mensaje largo se desplaza** dentro de su línea, a ritmo de lectura (80 px/s),
-  en lugar de cortarse con «…». La isla no cambia de tamaño. El aviso se queda lo
-  que tarda en llegar al final, entre 5,5 y 20 s; esa duración se estima por
-  caracteres, así que un texto con muchas letras anchas puede retirarse algo antes.
+- **El mensaje tiene espacio:** ocupa hasta **tres líneas** del panel. Si es más
+  largo, espera un instante y **sube** a ritmo de lectura (una línea cada 1,2 s)
+  hasta enseñar el final, en lugar de cortarse con «…». La isla no cambia de
+  tamaño. El aviso se queda lo que tarda en llegar al final, entre 5,5 y 20 s; esa
+  duración se estima por caracteres, así que un texto con muchas letras anchas puede
+  retirarse algo antes.
 - **Un clic abre la aplicación.** Al hacer clic en una notificación de otra app, la
   isla la descarta y abre (o trae al frente) esa app, como desde el menú Inicio. No
   abre el chat ni el mensaje concreto: Windows no permite reenviar la activación de
@@ -620,6 +651,47 @@ misma dirección que Windows ya usó para enseñarla. Por eso:
 - **No es una API documentada de Windows.** Si una actualización cambia el
   formato de esa base, la foto deja de aparecer y la isla vuelve a la inicial,
   sin más efecto.
+
+#### Usar solo la isla, sin el globo de Windows
+
+La isla lee las notificaciones del **centro de notificaciones** de Windows, no el
+globo que aparece en pantalla. Por eso se puede quitar el globo y que las
+notificaciones sigan llegando a la isla, sin verlas dos veces.
+
+**Por app (recomendado).** En Windows 11, para cada aplicación que quieras ver solo
+en la isla (WhatsApp, Teams, Outlook…):
+
+1. Abre **Configuración → Sistema → Notificaciones** y entra en la app.
+2. **Desactiva «Mostrar notificaciones de banner».** Es lo que quita el globo.
+3. **Deja activado «Mostrar notificaciones en el centro de notificaciones».** Es el
+   paso importante: de ahí las lee la isla.
+4. Opcional: desactiva «Reproducir un sonido cuando llegue una notificación» si
+   tampoco quieres el sonido de Windows.
+
+En Windows 10 es **Sistema → Notificaciones y acciones**, con «Mostrar banners de
+notificación» desactivado y «Mostrar notificaciones en el centro de actividades»
+activado.
+
+**Con No molestar (global).** En Windows 11, activa **No molestar** desde el panel
+de notificaciones (Win+N → icono de la campana). Oculta todos los globos de golpe, y
+las notificaciones siguen llegando al centro. Es más rápido, pero afecta a todas las
+apps y no solo a las que ves en la isla. En Windows 10 es el *Asistente de
+concentración*.
+
+Qué **no** hacer:
+
+- **No apagues la aplicación entera** con su interruptor principal en esa pantalla,
+  ni el interruptor general de notificaciones de Windows. Entonces Windows no genera
+  la notificación y la isla no ve nada.
+- Una app que **no esté activada** en la lista de la isla, con el globo apagado,
+  se queda sin ningún aviso visible. Quita el globo solo a las que sí activaste en
+  «Notificaciones de aplicaciones».
+
+> **Sin verificar en todos los casos.** Que la isla las siga viendo con el globo
+> apagado se desprende de cómo funciona la API (lee el centro de notificaciones),
+> pero no se ha probado con todas las combinaciones de apps y de modos de No
+> molestar. Prueba primero con **una sola app**: recibe un mensaje y comprueba que
+> sale en la isla y no el globo de Windows.
 
 ### Letra sincronizada (karaoke)
 

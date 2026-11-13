@@ -128,7 +128,7 @@ fn download(url: &str) -> Option<String> {
 }
 
 /// Tipo de imagen por sus primeros bytes; `None` si no es JPEG, PNG ni WebP.
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniff(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         Some("image/jpeg")
     } else if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
