@@ -1,3 +1,4 @@
+import "./settings.css";
 import { createApp } from "vue";
 import SettingsApp from "./SettingsApp.vue";
 

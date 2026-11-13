@@ -1,9 +1,28 @@
 @import url("https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
-@theme {
+@theme static {
   --font-sans: "Google Sans", "Segoe UI", sans-serif;
+  --color-green: #b7f36b;
+  --color-muted: #9b9ba8;
+  --color-line: rgba(255, 255, 255, .09);
+  --color-panel: rgba(255, 255, 255, .045);
+
+  --animate-toast-in: toast-in .3s ease both;
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  --animate-popover-in: popover-in .15s ease-out;
+  @keyframes popover-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 }
+
+/* Fondos de escritorio de la demo. Son utilidades propias y no clases de
+   Tailwind porque cada uno apila varios degradados radiales: escribirlos como
+   valor arbitrario seria ilegible. */
+@utility wallpaper-aurora { background: radial-gradient(ellipse at 29% 42%,rgba(246,145,132,.78),transparent 34%),radial-gradient(ellipse at 76% 57%,rgba(105,93,207,.92),transparent 42%),radial-gradient(ellipse at 55% 28%,rgba(255,192,113,.75),transparent 29%),linear-gradient(145deg,#40558e 3%,#9a628f 50%,#2e3975 90%); }
+@utility wallpaper-dusk { background: radial-gradient(ellipse at 30% 45%,rgba(255,172,111,.92),transparent 33%),radial-gradient(ellipse at 76% 54%,rgba(139,76,165,.9),transparent 42%),linear-gradient(145deg,#493c70,#bd6981 52%,#384376); }
+@utility wallpaper-blue { background: radial-gradient(ellipse at 25% 48%,rgba(83,192,207,.75),transparent 32%),radial-gradient(ellipse at 72% 48%,rgba(71,104,197,.95),transparent 43%),linear-gradient(145deg,#274d6f,#53649d 54%,#26395b); }
+@utility swatch-aurora { background: linear-gradient(145deg,#40558e,#9a628f 50%,#2e3975); }
+@utility swatch-dusk { background: linear-gradient(145deg,#f0a36f,#bd6981 50%,#493c70); }
+@utility swatch-blue { background: linear-gradient(145deg,#53c0cf,#53649d 55%,#26395b); }
 
 :root {
   font-family: var(--font-sans);
@@ -12,107 +31,37 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --muted: #9b9ba8;
-  --line: rgba(255, 255, 255, .09);
-  --panel: rgba(255, 255, 255, .045);
-  --green: #b7f36b;
+  --muted: var(--color-muted);
+  --line: var(--color-line);
+  --panel: var(--color-panel);
+  --green: var(--color-green);
 }
 
 * { box-sizing: border-box; }
 body { min-width: 320px; min-height: 100vh; margin: 0; }
-button { font: inherit; }
 button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 
-.app-shell {
-  width: min(1190px, calc(100% - 64px));
-  min-height: 100vh;
-  margin: 0 auto;
-  padding: 48px 0;
-  display: grid;
-  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
-  align-items: center;
-  gap: clamp(44px, 8vw, 110px);
-}
-
-.intro { min-width: 0; max-width: 470px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: #f6f6f8; font-size: 15px; font-weight: 650; letter-spacing: -.035em; text-decoration: none; }
-.brand-mark { width: 29px; height: 29px; display: grid; place-items: center; color: #090b12; border-radius: 9px; background: var(--green); }
-.brand-mark svg { width: 17px; height: 17px; stroke-width: 2; }
-.brand-light { color: #9c9ca8; font-weight: 450; }
-.eyebrow { margin-top: 54px; display: flex; align-items: center; gap: 9px; color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
-.live-dot, .preview-footer > span:first-child i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 13px rgba(183,243,107,.7); }
-h1 { margin: 17px 0 16px; font-size: clamp(43px, 5vw, 65px); font-weight: 600; letter-spacing: -.07em; line-height: .99; }
-h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8de4d1 58%,#b9a8ff); background-clip: text; -webkit-background-clip: text; }
-.description { max-width: 405px; margin: 0; color: #a4a4b1; font-size: 14px; line-height: 1.8; }
-.activity-header { margin: 34px 0 13px; display: flex; align-items: center; justify-content: space-between; }
-.activity-header h2 { margin: 0; font-size: 12px; font-weight: 650; }
-.activity-header > span { color: #71717e; font-size: 9px; letter-spacing: .08em; }
-.activity-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
-.activity-card { position: relative; min-width: 0; min-height: 66px; padding: 11px 12px; display: flex; align-items: center; gap: 11px; text-align: left; color: #f6f6f8; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); outline: none; transition: border-color .2s, background .2s, transform .2s; }
-.activity-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.2); }
-.activity-card[data-state="on"] { border-color: rgba(183,243,107,.55); background: rgba(183,243,107,.075); }
-.activity-icon { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; color: #d3d3dd; border: 1px solid rgba(255,255,255,.075); border-radius: 10px; background: rgba(255,255,255,.05); }
-.activity-icon svg { width: 17px; height: 17px; stroke-width: 1.7; }
-.activity-card[data-state="on"] .activity-icon { color: var(--green); border-color: rgba(183,243,107,.16); background: rgba(183,243,107,.08); }
-.activity-copy { min-width: 0; display: grid; gap: 4px; }
-.activity-copy strong { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.activity-copy small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.activity-check { width: 13px; height: 13px; margin-left: auto; flex: 0 0 auto; color: var(--green); opacity: 0; }
-.activity-card[data-state="on"] .activity-check { opacity: 1; }
-.hint { margin-top: 15px; color: #777784; font-size: 10px; line-height: 1.6; }
-.hint > span { margin-right: 5px; color: var(--green); }
-.stack-note { margin-top: 37px; display: flex; align-items: center; gap: 11px; color: #5e5e6b; font-size: 8px; font-weight: 650; letter-spacing: .14em; }
-.stack-line { width: 22px; height: 1px; background: #454552; }
-.stack-note i { margin: 0 3px; color: #8c8c99; font-style: normal; }
-.reference-note { margin: 10px 0 0 33px; color: #666672; font-size: 9px; }
-.reference-note a { color: #9696a3; text-decoration-color: rgba(150,150,163,.45); text-underline-offset: 3px; }
-.reference-note a:hover { color: #d3d3dc; }
-
-.preview-column { min-width: 0; }
-.preview-heading { margin-bottom: 20px; display: flex; align-items: flex-end; justify-content: space-between; }
-.preview-kicker { color: #82828f; font-size: 9px; font-weight: 700; letter-spacing: .15em; }
-.preview-heading h2 { margin: 8px 0 0; font-size: 20px; font-weight: 550; letter-spacing: -.045em; line-height: 1.18; }
-.preview-heading h2 span { color: #858591; }
-.settings-trigger { width: 35px; height: 35px; display: grid; place-items: center; color: #c8c8d0; border: 1px solid rgba(255,255,255,.1); border-radius: 11px; background: rgba(255,255,255,.035); transition: background .2s, color .2s; }
-.settings-trigger:hover { color: white; background: rgba(255,255,255,.09); }
-.settings-trigger svg { width: 17px; height: 17px; stroke-width: 1.6; }
-.desktop-frame { padding: 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 23px; background: linear-gradient(145deg,#282832,#14151d 55%,#20212a); box-shadow: 0 36px 100px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.025); }
-.desktop-preview { position: relative; min-height: 410px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 17px; isolation: isolate; background: #263d75; transition: background .45s ease; }
-.desktop-preview::before, .desktop-preview::after { position: absolute; z-index: -1; content: ""; width: 68%; height: 80%; border: 1px solid rgba(255,255,255,.12); border-radius: 48% 52% 62% 38%; filter: blur(1px); transform: rotate(38deg); }
-.desktop-preview::before { top: 10%; left: -20%; }
-.desktop-preview::after { right: -25%; bottom: -3%; transform: rotate(-37deg); }
-.theme-aurora { background: radial-gradient(ellipse at 29% 42%,rgba(246,145,132,.78),transparent 34%),radial-gradient(ellipse at 76% 57%,rgba(105,93,207,.92),transparent 42%),radial-gradient(ellipse at 55% 28%,rgba(255,192,113,.75),transparent 29%),linear-gradient(145deg,#40558e 3%,#9a628f 50%,#2e3975 90%); }
-.theme-dusk { background: radial-gradient(ellipse at 30% 45%,rgba(255,172,111,.92),transparent 33%),radial-gradient(ellipse at 76% 54%,rgba(139,76,165,.9),transparent 42%),linear-gradient(145deg,#493c70,#bd6981 52%,#384376); }
-.theme-blue { background: radial-gradient(ellipse at 25% 48%,rgba(83,192,207,.75),transparent 32%),radial-gradient(ellipse at 72% 48%,rgba(71,104,197,.95),transparent 43%),linear-gradient(145deg,#274d6f,#53649d 54%,#26395b); }
-.desktop-glow { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg,rgba(14,12,32,.08),transparent 48%,rgba(12,12,28,.25)); pointer-events: none; }
-.desktop-shortcuts { position: absolute; top: 18px; left: 17px; display: grid; gap: 18px; }
-.desktop-shortcut { width: 52px; display: grid; justify-items: center; gap: 4px; color: rgba(255,255,255,.88); font-size: 8px; text-shadow: 0 1px 5px rgba(0,0,0,.5); }
-.shortcut-icon { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.2); border-radius: 7px; background: rgba(255,255,255,.15); backdrop-filter: blur(8px); }
-.shortcut-icon.recycle::before { width: 12px; height: 15px; content: ""; border: 1px solid rgba(255,255,255,.85); border-top: 3px solid rgba(255,255,255,.85); border-radius: 2px 2px 4px 4px; }
-.shortcut-icon.folder { color: #ffe091; background: linear-gradient(150deg,#fbd877,#cd8f39); }
-.shortcut-icon.folder::before { width: 15px; height: 10px; content: ""; border-radius: 2px; background: linear-gradient(#ffe69b,#ffd15b); }
-.shortcut-icon.browser { color: #9cdcff; font-size: 19px; }
-
+/* --- Isla ---
+   El diseño de las actividades (avatares, filas, controles) va con utilidades
+   de Tailwind en TheIsland.vue. Aquí queda lo que Tailwind no expresa bien o
+   no debe separarse de su contexto:
+   - la animacion de apertura (`.island-morph`) y las medidas que Rust replica;
+   - las animaciones de los avisos, el cargador y las letras: @keyframes,
+     @property, ::before/::after y selectores con :has() sobre la propia isla
+     (su maquetacion y colores van ya en utilidades);
+   - la onda y los tintes de caratula, que se estilizan por posicion.
+   Si cambias una medida de la pildora, cambia tambien su pareja en lib.rs. */
 .island { position: absolute; z-index: 4; top: 17px; left: 50%; overflow: hidden; color: white; border: 1px solid rgba(255,255,255,.08); background: #050506; box-shadow: 0 8px 28px rgba(0,0,0,.38); cursor: pointer; transform: translateX(-50%); animation: island-entry .45s cubic-bezier(.16,1,.3,1) both; }
+@media (max-width: 500px) { .island { top: 12px; } }
 @keyframes island-entry { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
 /* Relleno simetrico en los cuatro lados: la caratula y los controles quedan
    a la misma distancia de cada borde de la pildora. */
 .island-content { height: 100%; padding: 13px; display: flex; flex-direction: column; justify-content: space-between; transform-origin: top center; }
-/* gap en vez de space-between: con space-between la onda se pega al borde
-   redondeado y sus ultimas barras quedan recortadas. */
 /* Caratula y onda centradas como un bloque, con el mismo aire a cada lado. */
 .island-collapsed { position: absolute; inset: 0; z-index: 1; padding: 0 12px; display: flex; align-items: center; justify-content: center; gap: 10px; }
-/* La onda se iguala en altura a la caratula para que compartan eje. */
 /* La onda no debe superar el alto interior de la pildora compacta (34px
    menos bordes), o empuja el contenido y lo descentra. */
 .island-collapsed .waveform { height: 18px; }
-.album-art { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; color: rgba(255,255,255,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: radial-gradient(circle at 70% 26%,#f6d29a 0 12%,transparent 13%),linear-gradient(145deg,#f0bc88,#a85c76 55%,#4c397a); font-size: 13px; font-weight: 700; box-shadow: inset 0 0 20px rgba(44,23,60,.2); }
-.idle-art { color: #b7f36b; background: linear-gradient(145deg,#3b4b45,#18221f); }
-.idle-art svg { width: 17px; height: 17px; }
-.mini-album { width: 20px; height: 20px; border-radius: 7px; font-size: 9px; }
-/* La caratula se reduce mucho en la vista compacta: con interpolacion de
-   calidad no se ve pixelada ni sucia. */
-.album-art img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: auto; }
 .waveform { height: 17px; display: flex; align-items: center; gap: 2px; }
 .waveform i { width: 2px; border-radius: 3px; background: var(--green); animation: waveform .7s ease-in-out infinite alternate; }
 .idle-wave i { animation-duration: 1.4s; opacity: .48; }
@@ -124,99 +73,78 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 .waveform i:nth-child(3) { height: 15px; animation-delay: .4s; }
 @keyframes waveform { to { transform: scaleY(.42); } }
 .island.is-paused .waveform i { animation-play-state: paused; }
-.record-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff5b67; box-shadow: 0 0 10px rgba(255,91,103,.65); animation: record-pulse 1.3s ease-in-out infinite; }
 @keyframes record-pulse { 50% { opacity: .5; transform: scale(.8); } }
-.ring-pulse { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; border-radius: 50%; background: #46bd73; animation: ring-pulse 1.2s ease-in-out infinite; }
-.ring-pulse svg { width: 13px; height: 13px; }
 @keyframes ring-pulse { 50% { box-shadow: 0 0 0 5px rgba(70,189,115,.14); } }
-.collapsed-icon { width: 15px; height: 15px; color: #fff; }
-.timer-icon { color: #f4cb82; }
-.collapsed-time { color: #f4cb82; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 650; }
-.call-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(183,243,107,.7); }
-.collapsed-message { font-size: 10px; font-weight: 600; }
 
 /* --- Avisos --- */
 /* El aviso vive en la pildora compacta, asi que comparte su altura: solo
    dispone de 34 px y el icono no puede crecer mas que el texto. */
-.notice-icon { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; }
-.notice-icon svg { width: 13px; height: 13px; }
 /* Verde de carga, el mismo que usa la llamada activa: es el color con el que
    el resto de la isla dice «esto va bien». */
-.notice-power { background: rgba(183,243,107,.16); color: var(--green); }
 /* Volumen en blanco neutro: no es un estado bueno ni malo, solo informativo. */
-.notice-volume { background: rgba(255,255,255,.14); color: #fff; }
 /* Bateria baja en ambar-rojo, el color con el que la isla pide atencion. */
-.notice-battery { background: rgba(255,138,112,.18); color: #ff8a70; }
-.notice-strip.notice-volume .notice-strip-icon { background: rgba(255,255,255,.14); color: #fff; }
-.notice-strip.notice-battery .notice-strip-icon { background: rgba(255,138,112,.18); color: #ff8a70; }
-/* El texto acompana al icono: en ambar (heredado de .collapsed-time) el aviso
+/* Wi-Fi en azul: es la señal de «hay red», distinta del verde de la carga. */
+/* Al conectarse, el punto aparece y los arcos se encienden de dentro hacia
+   fuera, uno tras otro; un aro se expande desde el icono como un pulso de
+   radio. Las dos cosas ocurren una sola vez: el aviso dura unos segundos. */
+.notice-icon.notice-wifi { position: relative; }
+.notice-icon.notice-wifi::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  border: 1.5px solid #6eb4ff; opacity: 0;
+  animation: wifi-ping 1s ease-out .75s 2;
+}
+.wifi-arc, .wifi-dot { opacity: 0; animation: wifi-on .3s ease-out both; }
+.wifi-dot { animation-delay: .1s; }
+.wifi-arc-1 { animation-delay: .3s; }
+.wifi-arc-2 { animation-delay: .5s; }
+.wifi-arc-3 { animation-delay: .7s; }
+@keyframes wifi-on { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
+@keyframes wifi-ping { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.9); } }
+.wifi-arc, .wifi-dot { transform-origin: 12px 18.5px; }
+/* Sin internet en el mismo ambar-rojo que la bateria baja. El icono entra
+   con un temblor corto, el gesto de «se cayo». */
+.notice-icon.notice-internet svg {
+  animation: wifi-lost .7s ease-out both;
+}
+@keyframes wifi-lost {
+  0% { opacity: 0; transform: scale(1.4); }
+  35% { opacity: 1; transform: scale(1) translateX(-1.5px); }
+  50% { transform: translateX(1.5px); }
+  65% { transform: translateX(-1px); }
+  80% { transform: translateX(.5px); }
+  100% { transform: none; }
+}
+/* El texto acompana al icono: en ambar (el de la hora en la vista compacta) el aviso
    se lee como dos mensajes distintos en vez de uno. */
-.notice-label { white-space: nowrap; color: rgba(255,255,255,.92); font-weight: 600; }
 
 /* Al enchufar, el icono se rodea de un anillo que se llena hasta el porcentaje
    de bateria y el rayo late mientras el aviso esta en pantalla. `@property`
    hace animable la variable: sin registrarla, el navegador salta de 0 al final. */
 @property --fill { syntax: "<number>"; inherits: false; initial-value: 0; }
-.notice-icon.is-charging, .notice-strip-icon.is-charging {
+.notice-icon.is-charging {
   position: relative;
   background: conic-gradient(var(--green) calc(var(--fill) * 1%), rgba(183,243,107,.16) 0);
   animation: charge-fill .9s cubic-bezier(.22,1,.36,1) .15s both;
 }
 /* Disco interior: deja visible solo un aro de 2 px del degradado. */
-.notice-icon.is-charging::before, .notice-strip-icon.is-charging::before {
+.notice-icon.is-charging::before {
   content: ""; position: absolute; inset: 2px; border-radius: 50%; background: #0a0c0a;
 }
-.notice-icon.is-charging svg, .notice-strip-icon.is-charging svg {
+.notice-icon.is-charging svg {
   position: relative; animation: charge-pulse 1.1s ease-in-out .2s infinite;
 }
 @keyframes charge-fill { from { --fill: 0; } to { --fill: var(--pct); } }
 @keyframes charge-pulse { 0%, 100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.18); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) {
-  .notice-icon.is-charging, .notice-strip-icon.is-charging, .notice-icon.is-charging svg, .notice-strip-icon.is-charging svg { animation: none; --fill: var(--pct); }
-}
 
 /* --- Notificacion de otra aplicacion --- */
-.toast-panel {
-  position: absolute; inset: 0; z-index: 1; isolation: isolate;
-  display: flex; align-items: center; gap: 11px; padding: 0 18px 0 16px;
-  /* Solo opacidad, como el resto del contenido de la isla. */
-  animation: island-fade-in .3s ease-out .14s both;
-}
-.toast-avatar {
-  flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 15px; font-weight: 700; color: #0a0c0a; background: var(--green);
-}
-.toast-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.toast-app { font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9aa4; }
-.toast-title, .toast-body { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.toast-title { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.96); line-height: 1.2; }
 /* Sin cuerpo, el texto unico ocupa la fila del mensaje y puede ir a dos lineas. */
-.toast-title.is-solo {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  white-space: normal; overflow-wrap: anywhere; font-weight: 500;
-}
 /* El cuerpo ocupa una linea: con tres filas de texto la pildora de 60 px no da
    mas de si, y el mensaje completo se lee abriendo la aplicacion. */
-.toast-body { font-size: 11.5px; color: rgba(255,255,255,.72); line-height: 1.25; }
-@media (prefers-reduced-motion: reduce) { .toast-panel { animation: none; } }
 
 /* --- Aviso grande del cargador --- */
 /* El contador del porcentaje necesita su propia variable entera: `counter()`
    solo acepta enteros, y `--fill` (decimal) da valores intermedios invalidos. */
 @property --num { syntax: "<integer>"; inherits: false; initial-value: 0; }
-.charge-panel {
-  position: absolute; inset: 0; z-index: 1; isolation: isolate;
-  display: flex; align-items: center; justify-content: center; gap: 26px;
-  /* Entra solo con opacidad, como el resto del contenido: un desplazamiento
-     se percibe como un salto sobre una isla que ya se esta redimensionando. */
-  animation: island-fade-in .3s ease-out .16s both;
-}
-.charge-battery { display: flex; align-items: center; }
-.charge-body {
-  position: relative; width: 92px; height: 46px; border-radius: 13px;
-  border: 2px solid rgba(255,255,255,.7); overflow: hidden; display: grid; place-items: center;
-}
-.charge-cap { width: 5px; height: 18px; margin-left: 3px; border-radius: 0 3px 3px 0; background: rgba(255,255,255,.7); }
 /* Nivel de carga: crece de izquierda a derecha y un brillo lo recorre para que
    se lea como «entrando energia» y no como una barra estatica. */
 .charge-fill {
@@ -230,62 +158,14 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
   background-size: 220% 100%;
   animation: charge-sheen 1.3s linear 1.2s infinite;
 }
-.charge-bolt { position: relative; z-index: 1; width: 22px; height: 22px; color: #0a0c0a; animation: charge-pulse 1.1s ease-in-out .4s infinite; }
-.charge-copy { display: flex; flex-direction: column; gap: 1px; }
-.charge-percent {
-  font-size: 34px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums;
-  animation: charge-count .95s cubic-bezier(.22,1,.36,1) .35s both;
-}
+.charge-percent { animation: charge-count .95s cubic-bezier(.22,1,.36,1) .35s both; }
 /* El reinicio va en el propio elemento: `--num` no se hereda, y un pseudo
    elemento leeria su valor inicial (0) en vez del animado. */
 .charge-percent { counter-reset: num var(--num); }
 .charge-percent::after { content: counter(num) "%"; }
-.charge-copy small { font-size: 12px; font-weight: 600; color: var(--green); letter-spacing: .02em; }
 @keyframes charge-count { from { --num: 0; } to { --num: var(--pct); } }
 @keyframes charge-sheen { from { background-position: 110% 0; } to { background-position: -110% 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .charge-panel, .charge-fill, .charge-fill::after, .charge-bolt, .charge-percent { animation: none; }
-  .charge-fill { --fill: var(--pct); }
-  .charge-percent { --num: var(--pct); }
-}
 
-/* --- Aviso dentro del panel --- */
-/* Ocupa su propio sitio en lugar de superponerse. Taparia justo la fila del
-   titulo, que es la que el usuario esta mirando: mover el contenido es
-   preferible a ocultarlo. El panel se aprieta mientras dura el aviso. */
-.notice-strip {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
-  display: flex; align-items: center; gap: 9px;
-  padding: 7px 13px;
-  border-radius: 24px 24px 12px 12px;
-  background: rgba(10,12,10,.92);
-  backdrop-filter: blur(10px);
-  animation: notice-strip-in .26s cubic-bezier(.22,1,.36,1) both;
-}
-/* El contenido baja para dejarle sitio a la franja y se comprime un poco,
-   de modo que los controles siguen dentro de los 108 px del panel. */
-.island:has(.notice-strip) .island-content { padding-top: 40px; gap: 6px; justify-content: flex-start; }
-.island:has(.notice-strip) .island-content > * { flex: none; }
-.notice-strip-icon { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; background: rgba(183,243,107,.16); color: var(--green); }
-.notice-strip-icon svg { width: 13px; height: 13px; }
-.notice-strip-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.92); font-variant-numeric: tabular-nums; }
-/* Entra deslizandose desde el borde de arriba, que es de donde cuelga la
-   isla: aparecer sin mas se lee como un parpadeo sobre el panel. */
-@keyframes notice-strip-in { from { opacity: 0; transform: translateY(-100%); } to { opacity: 1; transform: translateY(0); } }
-@media (prefers-reduced-motion: reduce) { .notice-strip { animation-duration: .01ms; } }
-.music-top, .activity-top { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
-.media-details, .activity-top { min-width: 0; }
-.media-details { display: flex; align-items: center; gap: 11px; }
-.media-copy { min-width: 0; display: grid; gap: 2px; }
-.media-copy strong { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.media-copy small { overflow: hidden; color: #a2a2a8; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.playing-badge { display: flex; align-items: center; gap: 5px; color: #a2a2a8; font-size: 7px; font-weight: 700; letter-spacing: .08em; white-space: nowrap; }
-.playing-badge i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
-/* Sin reproducir, el indicador pierde el verde y el brillo. */
-.playing-badge.is-idle i { background: #6f6f78; box-shadow: none; }
-/* Layout horizontal: caratula grande a la izquierda, resto apilado. */
-/* Layout tipo iOS: cabecera con caratula y texto, barra de ancho completo
-   y una fila de controles grandes debajo. */
 /* La caratula tine el fondo de la isla: muy difuminada y oscurecida para que
    el texto conserve el contraste. El degradado la desvanece hacia abajo. */
 .art-backdrop { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: inherit; opacity: .4; pointer-events: none; isolation: isolate; contain: paint; }
@@ -296,165 +176,16 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
    deja de aplicarse y su contenido se descentra dentro de la pildora. */
 .island-content { position: relative; z-index: 1; isolation: isolate; }
 .island-collapsed { z-index: 1; isolation: isolate; }
-.music-layout { height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
-.music-heading { display: flex; align-items: center; gap: 9px; }
-/* El texto ocupa el espacio libre: asi la onda queda pegada al borde derecho. */
-.music-heading .media-copy { flex: 1; }
-.music-heading .heading-wave { margin-left: auto; }
-.album-art-large { width: 38px; height: 38px; border-radius: 9px; font-size: 15px; }
 /* Margen propio para que las barras no toquen el borde redondeado. */
-.heading-wave { flex: 0 0 auto; height: 13px; }
+.heading-wave { flex: 0 0 auto; height: 13px; margin-left: auto; }
 .heading-wave.is-idle i { animation-play-state: paused; opacity: .4; }
-.track-line { display: flex; align-items: center; gap: 8px; }
-.track-line .track-seek { flex: 1; min-width: 0; }
-.track-time { flex: 0 0 auto; color: #9999a0; font-size: 8.5px; font-variant-numeric: tabular-nums; }
-.track-info { display: flex; justify-content: space-between; color: #9999a0; font-size: 8px; font-variant-numeric: tabular-nums; }
-.track-seek { padding: 5px 0; cursor: pointer; }
-.track-progress { height: 3px; overflow: hidden; border-radius: 4px; background: rgba(255,255,255,.17); }
-/* El area de pulsacion la aporta el padding del contenedor, no un pseudo-
-   elemento: overflow:hidden recortaria cualquier zona que sobresaliera. */
-.track-progress span { display: block; height: 100%; border-radius: inherit; background: #f4f4f6; }
-/* Tres columnas iguales: los botones quedan centrados de verdad aunque el
-   volumen solo ocupe la derecha. */
-.control-row { display: flex; align-items: center; justify-content: center; }
-.control-buttons { display: flex; align-items: center; justify-content: center; gap: 9px; }
-.media-control { width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center; color: #f0f0f4; border: 0; border-radius: 50%; background: transparent; transition: color .16s, transform .16s; }
-.media-control:hover { transform: scale(1.12); color: #fff; }
-.media-control svg { width: 17px; height: 17px; stroke-width: 2; }
-.play-control { width: 30px; height: 30px; color: #f0f0f4; background: transparent; }
-.play-control svg { width: 20px; height: 20px; }
-.play-control:hover { color: #fff; background: transparent; }
-/* El volumen se posiciona absoluto para no descentrar los botones. */
-.volume { display: flex; align-items: center; gap: 5px; }
-.volume-button { display: grid; place-items: center; padding: 0; color: #9a9aa4; border: 0; background: none; cursor: pointer; transition: color .15s; }
-.volume-button:hover { color: #e8e8ee; }
-.volume-button svg { width: 15px; height: 15px; }
-.volume-slider { width: 0; opacity: 0; accent-color: #f4f4f6; cursor: pointer; transition: width .22s cubic-bezier(.16,1,.3,1), opacity .18s; }
-.volume:hover .volume-slider, .volume-slider:focus-visible { width: 52px; opacity: 1; }
-.activity-top { justify-content: flex-start; }
-.activity-top .media-copy { flex: 1; }
-.timer-ring { width: 43px; height: 43px; flex: 0 0 auto; display: grid; place-items: center; color: #f4cb82; border: 2px solid rgba(244,203,130,.75); border-radius: 50%; }
-.timer-ring svg { width: 19px; height: 19px; }
-.timer-summary { display: flex; align-items: center; justify-content: space-between; color: #9999a0; font-size: 9px; letter-spacing: .08em; }
-.timer-summary strong { color: var(--green); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
-.contact-avatar,.message-avatar { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; border: 1px solid rgba(255,255,255,.15); border-radius: 13px; background: linear-gradient(145deg,#f8d7aa,#b17aa2 58%,#5a477f); font-size: 16px; font-weight: 600; }
-.call-status { display: flex; align-items: center; gap: 5px; color: var(--green); font-size: 7px; font-weight: 700; letter-spacing: .07em; white-space: nowrap; }
-.call-status i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
-.call-ended { color: #a2a2a8 !important; }
-.call-controls { display: flex; justify-content: center; gap: 24px; }
-.call-ended-note { align-self: center; display: grid; justify-items: center; gap: 7px; color: #9999a8; font-size: 9px; text-align: center; }
-.call-ended-note button { padding: 5px 9px; color: var(--green); border: 1px solid rgba(183,243,107,.2); border-radius: 7px; background: rgba(183,243,107,.06); font-size: 9px; }
-.call-controls .media-control { width: 33px; height: 33px; }
-.call-controls .end-call { color: white; background: #fa453d; transform: rotate(135deg); }
-.call-controls .end-call:hover { background: #dc342e; }
-.idle-avatar,.recording-avatar,.transfer-avatar { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; color: #b7f36b; border: 1px solid rgba(183,243,107,.15); border-radius: 13px; background: linear-gradient(145deg,#2c3b35,#171d1b); }
-.idle-avatar svg,.recording-avatar svg,.transfer-avatar svg { width: 19px; height: 19px; }
-.idle-status { color: #92929c; font-size: 7px; font-weight: 700; letter-spacing: .08em; }
-.idle-footer { display: flex; align-items: center; justify-content: space-between; color: #8d8d98; font-size: 9px; }
-.idle-indicator { width: 6px; height: 6px; border-radius: 50%; background: #777782; }
-.ring-avatar { background: linear-gradient(145deg,#f8d7aa,#b17aa2 58%,#5a477f); }
-.incoming-label { color: #9de6b5 !important; }
-.incoming-controls { display: flex; align-items: center; justify-content: center; gap: 19px; color: #9999a8; font-size: 9px; }
-.incoming-action { width: 32px; height: 32px; display: grid; place-items: center; color: white; border: 0; border-radius: 50%; }
-.incoming-action svg { width: 16px; height: 16px; }
-.decline-call { background: #f04e58; transform: rotate(135deg); }
-.accept-call { background: #42bb70; transform: rotate(225deg); }
-.recording-avatar { color: #ff727b; border-color: rgba(255,91,103,.18); background: rgba(255,91,103,.1); }
-.recording-clock { color: #ff7881; font-size: 11px; font-variant-numeric: tabular-nums; }
-.recording-controls { display: flex; align-items: center; gap: 15px; }
 .recording-wave { height: 31px; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 3px; }
 .recording-wave i { width: 2px; height: var(--bar); max-height: 28px; border-radius: 3px; background: linear-gradient(#ff8690,#d64d60); animation: recording-wave .65s ease-in-out infinite alternate; animation-delay: calc(var(--bar) * -.008); }
 .recording-wave.paused i { animation-play-state: paused; }
 @keyframes recording-wave { to { transform: scaleY(.36); opacity: .5; } }
-.transfer-avatar { color: #8dd8ff; border-color: rgba(141,216,255,.18); background: rgba(91,165,204,.12); }
-.transfer-info { display: flex; justify-content: space-between; color: #d6d6de; font-size: 9px; }
-.transfer-info strong { color: #8dd8ff; font-size: 9px; }
-.transfer-progress { height: 4px; overflow: hidden; border-radius: 4px; background: rgba(255,255,255,.14); }
-.transfer-progress span { display: block; width: 68%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#7cc9f2,#b6e5ff); }
-.message-avatar { color: #fff; background: linear-gradient(145deg,#ffa784,#ee5970); }
-.message-avatar svg { width: 19px; height: 19px; }
-.dismiss-button { width: 25px; height: 25px; display: grid; place-items: center; color: #92929c; border: 0; border-radius: 50%; background: transparent; }
-.dismiss-button svg { width: 14px; height: 14px; }
-.message-body { margin: 4px 0 0 53px; color: #dddde2; font-size: 10px; line-height: 1.5; }
-.reply-button { align-self: flex-end; padding: 0; color: var(--green); border: 0; background: none; font-size: 9px; }
-.reply-button span { margin-left: 5px; }
-
-.toast-notification { position: absolute; z-index: 3; right: 15px; bottom: 58px; width: min(260px,calc(100% - 30px)); padding: 12px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid rgba(255,255,255,.17); border-radius: 14px; background: rgba(26,27,42,.66); backdrop-filter: blur(22px); box-shadow: 0 12px 32px rgba(12,12,25,.2); animation: toast-in .3s ease both; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.toast-icon { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; border-radius: 8px; background: linear-gradient(145deg,#ffa784,#ee5970); }
-.toast-icon svg { width: 15px; height: 15px; }
-.toast-copy { min-width: 0; flex: 1; display: grid; gap: 4px; font-size: 9px; }
-.toast-copy strong { font-size: 10px; }
-.toast-copy strong small { color: #a2a2a8; font-weight: 400; }
-.toast-copy > span { color: #d4d4db; line-height: 1.45; }
-.toast-notification > button { padding: 0; display: grid; color: #a3a3ad; border: 0; background: transparent; }
-.toast-notification > button svg { width: 13px; height: 13px; }
-
-.taskbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; height: 43px; padding: 0 15px; display: flex; align-items: center; gap: 11px; border-top: 1px solid rgba(255,255,255,.17); background: rgba(17,18,29,.68); backdrop-filter: blur(20px); }
-.taskbar-start,.taskbar-app { width: 27px; height: 27px; flex: 0 0 auto; display: grid; place-items: center; color: #e9e9ef; border: 0; border-radius: 7px; background: transparent; }
-.taskbar-start:hover,.taskbar-app:hover { background: rgba(255,255,255,.12); }
-.taskbar-start svg { width: 16px; height: 16px; }
-.taskbar-search { width: 125px; height: 25px; padding: 0 9px; display: flex; align-items: center; gap: 7px; color: rgba(255,255,255,.68); border: 1px solid rgba(255,255,255,.13); border-radius: 7px; background: rgba(255,255,255,.09); font-size: 9px; }
-.taskbar-search svg { width: 13px; height: 13px; }
-.taskbar-pinned { display: flex; align-items: center; gap: 4px; }
-.taskbar-app svg { width: 16px; height: 16px; }
-.active-app { position: relative; color: #9ec7ff; background: rgba(255,255,255,.08); }
-.active-app::after { position: absolute; right: 7px; bottom: -2px; left: 7px; height: 2px; content: ""; border-radius: 2px; background: #83b7ff; }
-.browser-app { color: #82cefa; font-size: 18px; }
-.taskbar-tray { margin-left: auto; display: flex; align-items: center; gap: 10px; color: #e7e7ec; }
-.taskbar-tray > svg { width: 14px; height: 14px; }
-.tray-indicator { color: #d5d5de; font-size: 12px; }
-.taskbar-clock { display: grid; gap: 2px; font-size: 8px; line-height: 1.1; text-align: right; }
-.taskbar-clock strong { font-weight: 500; }
-.taskbar-clock small { color: rgba(255,255,255,.75); font-size: 7px; }
-.preview-footer { margin: 12px 2px 0; display: flex; align-items: center; justify-content: space-between; }
-.preview-footer > span:first-child { display: flex; align-items: center; gap: 7px; color: #70707c; font-size: 8px; font-weight: 700; letter-spacing: .1em; }
-.preview-footer > span:first-child i { width: 5px; height: 5px; }
-.window-actions { display: flex; align-items: center; gap: 11px; color: #666672; }
-.window-actions svg { width: 12px; height: 12px; }
-.preview-caption { margin: 8px 0 0; color: #62626f; font-size: 9px; text-align: center; }
-
-.wallpaper-popover { width: 190px; padding: 14px; color: #f7f7fa; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: #171820; box-shadow: 0 16px 45px rgba(0,0,0,.4); outline: none; animation: popover-in .15s ease-out; }
-@keyframes popover-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.popover-heading { display: grid; gap: 4px; }
-.popover-heading strong { font-size: 11px; font-weight: 650; }
-.popover-heading span { color: #9494a0; font-size: 9px; }
-.wallpaper-options { margin-top: 12px; display: flex; gap: 8px; }
-.wallpaper-option { width: 42px; height: 34px; display: grid; place-items: center; color: white; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; }
-.wallpaper-option svg { width: 14px; height: 14px; }
-.wallpaper-option.selected { outline: 2px solid var(--green); outline-offset: 2px; }
-.wallpaper-aurora { background: linear-gradient(145deg,#40558e,#9a628f 50%,#2e3975); }
-.wallpaper-dusk { background: linear-gradient(145deg,#f0a36f,#bd6981 50%,#493c70); }
-.wallpaper-blue { background: linear-gradient(145deg,#53c0cf,#53649d 55%,#26395b); }
-.wallpaper-caption { margin: 9px 0 0; color: #adadb7; font-size: 9px; }
-
-@media (max-width: 900px) {
-  .app-shell { width: min(620px,calc(100% - 36px)); grid-template-columns: minmax(0,1fr); gap: 42px; padding: 36px 0; }
-  .intro { margin: 0 auto; }
-  .eyebrow { margin-top: 38px; }
-  .preview-column { width: 100%; }
-}
-@media (max-width: 500px) {
-  .app-shell { width: calc(100% - 28px); }
-  h1 { font-size: clamp(42px,12vw,58px); }
-  .desktop-frame { padding: 5px; border-radius: 19px; }
-  .desktop-preview { min-height: 340px; border-radius: 14px; }
-  .desktop-shortcuts { top: 14px; left: 8px; gap: 12px; }
-  .taskbar { height: 40px; padding: 0 7px; gap: 5px; }
-  .taskbar-search { width: 88px; }
-  .taskbar-tray { gap: 5px; }
-  .taskbar-app:nth-child(2) { display: none; }
-  .island { top: 12px; }
-  .toast-notification { bottom: 51px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *,*::before,*::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-}
 
 /* --- Letra tipo karaoke --- */
 /* La isla se divide en dos: controles a la izquierda, letra a la derecha. */
-.music-shell { height: 100%; display: flex; align-items: stretch; gap: 12px; }
-.music-shell .music-layout { flex: 0 0 auto; width: 300px; }
 .lyrics-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding-left: 12px; border-left: 1px solid rgba(255,255,255,.1); overflow: hidden; }
 .lyric-list { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; }
 /* El ancho deja sitio al escalado de la linea activa (1 / 1.095): asi su
@@ -479,11 +210,6 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 .lyric-enter-from { opacity: 0; transform: translateY(8px); }
 .lyric-leave-to { opacity: 0; transform: translateY(-8px); }
 .lyric-leave-active { position: absolute; left: 0; }
-@media (prefers-reduced-motion: reduce) { .lyric-line { transition-duration: .01ms; } }
-.control-right { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
-.lyrics-toggle { width: 22px; height: 22px; color: #9a9aa4; }
-.lyrics-toggle svg { width: 14px; height: 14px; }
-.lyrics-toggle.is-on { color: var(--green); }
 
 /* --- Animacion de apertura y cierre --- */
 /* Desaceleracion limpia, sin rebote: la pildora entra rapido y frena hasta
@@ -499,10 +225,11 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 /* Con la letra visible la isla se alarga en horizontal. */
 .island.has-lyrics { width: 540px; }
 
-/* Respeta a quien pidio menos movimiento: cambio inmediato, sin rebote. */
-@media (prefers-reduced-motion: reduce) {
-  .island-morph { transition-duration: .01ms; }
-}
+/* La isla NO respeta prefers-reduced-motion a proposito: WebView2 lo activa
+   cuando Windows tiene desactivados los "Efectos de animacion" (ahorro de
+   energia, maquinas virtuales, escritorio remoto) y la isla quedaba sin
+   animar. Ademas el recorte nativo (`animate_island`) se anima siempre y el
+   CSS debe ir a la par. */
 
 /* El contenido entra con un desvanecido corto, desfasado respecto al tamaño:
    la pildora crece primero y el contenido aparece cuando ya hay sitio. */
@@ -510,55 +237,17 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
    pildora que ya se esta redimensionando. El contenido entra cuando la
    transicion de tamano va por la mitad. */
 .island-content { animation: island-fade-in .3s ease-out .16s both; }
+/* Desplazamiento del mensaje largo de una notificacion (ToastMarquee.vue). El
+   componente fija --shift (cuanto sobra) y --dur (a velocidad constante). */
+@keyframes toast-marquee { from { transform: translateX(0); } to { transform: translateX(var(--shift)); } }
 @keyframes island-fade-in { from { opacity: 0; } to { opacity: 1; } }
 .island-collapsed { animation: island-fade-in .24s ease-out .1s both; }
-@media (prefers-reduced-motion: reduce) {
-  .island-content, .island-collapsed { animation: none; }
-  .island-morph { transition-duration: .01ms; }
-}
-
-/* --- Barra de avance arrastrable --- */
-/* La barra crece al apuntarla para que sea mas facil de agarrar. */
-.track-seek { touch-action: none; }
-.track-progress { position: relative; overflow: visible; transition: height .15s; }
-.track-seek:hover .track-progress, .track-seek:focus-visible .track-progress { height: 5px; }
-.track-seek:focus-visible { outline: none; }
-.track-seek:focus-visible .track-progress { box-shadow: 0 0 0 2px rgba(183,243,107,.45); }
-/* Tirador: oculto en reposo, visible al apuntar o enfocar. */
-.track-knob { position: absolute; top: 50%; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%; background: #fff; opacity: 0; transform: translateY(-50%) scale(.6); transition: opacity .15s, transform .15s; pointer-events: none; }
-.track-seek:hover .track-knob, .track-seek:focus-visible .track-knob { opacity: 1; transform: translateY(-50%) scale(1); }
-/* Los saltos de 5 s son secundarios: mas pequenos que reproducir o pista. */
-.skip-control { width: 22px; height: 22px; color: #b4b4bd; }
-.skip-control svg { width: 15px; height: 15px; }
-.skip-control:hover { color: #fff; }
-
-/* --- Acciones de la cabecera (karaoke y volumen) --- */
-/* Viven arriba, junto a la onda, para no saturar la fila de reproduccion. */
-.heading-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
-.icon-action { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; color: #9a9aa4; border: 0; border-radius: 6px; background: none; cursor: pointer; transition: color .15s, background .15s; }
-.icon-action svg { width: 14px; height: 14px; }
-.icon-action:hover { color: #f0f0f4; background: rgba(255,255,255,.1); }
-.icon-action.is-on { color: var(--green); }
-
-/* --- Aviso breve dentro de la isla --- */
-/* Los saltos siguen visibles aunque el reproductor no los admita, pero
-   atenuados: asi el boton no parece roto sin explicacion. */
-.hint-text { margin: -4px 0 0; color: #8e8e99; font-size: 10.5px; line-height: 1.35; }
-
-/* Cuando el reproductor no admite saltar de posicion, los controles de
-   avance quedan bloqueados: atenuados y sin responder al raton. */
-.skip-control:disabled { opacity: .3; cursor: default; }
-.skip-control:disabled:hover { transform: none; color: #b4b4bd; }
-.track-seek.is-static { cursor: default; }
-.track-seek.is-static .track-knob { display: none; }
-.track-seek.is-static:hover .track-progress { height: 3px; }
 
 /* --- Transicion sin cortes --- */
 /* El contenido no debe encogerse con la pildora durante la animacion: se le
    fija el ancho de destino para que no se reacomode en cada fotograma, que
    es lo que se percibe como un corte. */
 .island-content { width: 100%; box-sizing: border-box; }
-.music-shell, .music-layout { min-width: 0; }
 /* La pildora tambien anima su color de fondo y sombra al cambiar de estado. */
 .island-morph { transition-property: width, height, border-radius, box-shadow; }
 .island.is-expanded { box-shadow: 0 12px 38px rgba(0,0,0,.46); }
@@ -566,9 +255,6 @@ h1 > span { color: transparent; background: linear-gradient(110deg,#c8f89a 5%,#8
 /* El panel de letras aparece y desaparece con la pildora: su ancho se anima
    igual que el resto para que no se vea un bloque entrando de golpe. */
 .lyrics-panel { transition: opacity .26s ease-out .1s; }
-/* Los controles mantienen su ancho mientras la pildora crece a su alrededor,
-   asi no se reacomodan en cada fotograma de la transicion. */
-.music-shell .music-layout { transition: none; }
 
 /* En compacto el fondo tintado es apenas un matiz: a ese tamano un tinte
    fuerte solo ensucia la pildora. */

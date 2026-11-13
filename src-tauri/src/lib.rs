@@ -1,4 +1,6 @@
+mod avatars;
 mod lyrics;
+mod network;
 mod power;
 mod settings;
 mod smtc;
@@ -6,6 +8,7 @@ mod toasts;
 mod volume;
 
 use settings::{Position, Settings};
+use network::{InternetState, INTERNET_EVENT, WIFI_EVENT};
 use power::{LOW_BATTERY_EVENT, POWER_EVENT};
 use volume::VOLUME_EVENT;
 use smtc::{Command, MediaState, MEDIA_EVENT};
@@ -340,10 +343,6 @@ fn place_island(window: &WebviewWindow, width: f64, height: f64) {
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::Graphics::Gdi::{
-            CreateRectRgn, DeleteObject, RedrawWindow, HGDIOBJ, RDW_ALLCHILDREN, RDW_INVALIDATE,
-            RDW_UPDATENOW,
-        };
         use windows::Win32::UI::WindowsAndMessaging::{
             SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
         };
@@ -378,27 +377,7 @@ fn place_island(window: &WebviewWindow, width: f64, height: f64) {
                     // región de 1x1 px en la esquina de la ventana, fuera de
                     // la zona visible, mantiene la transparencia sin
                     // desenfoque a la vista.
-                    {
-                        use windows::Win32::Graphics::Dwm::{
-                            DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE,
-                            DWM_BLURBEHIND,
-                        };
-                        let corner = CreateRectRgn(0, 0, 1, 1);
-                        let blur = DWM_BLURBEHIND {
-                            dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
-                            fEnable: true.into(),
-                            hRgnBlur: corner,
-                            fTransitionOnMaximized: false.into(),
-                        };
-                        let _ = DwmEnableBlurBehindWindow(hwnd, &blur);
-                        let _ = DeleteObject(HGDIOBJ(corner.0));
-                    }
-                    let _ = RedrawWindow(
-                        Some(hwnd),
-                        None,
-                        None,
-                        RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW,
-                    );
+                    reapply_transparency(hwnd);
                 }
                 return;
             }
@@ -411,9 +390,112 @@ fn place_island(window: &WebviewWindow, width: f64, height: f64) {
     let _ = window.set_position(LogicalPosition::new(x, y));
 }
 
+/// Reaplica la transparencia y repinta la ventana recortada.
+///
+/// Tao hace transparente la ventana con un desenfoque de región vacía
+/// (`0,0,-1,-1`). Con la ventana recortada, Windows lo trata como «toda la zona
+/// visible» y pinta de pálido el fondo desenfocado cuando la ventana cambia de
+/// estado. Una región de 1x1 px en la esquina de la ventana, fuera de la zona
+/// visible, mantiene la transparencia sin desenfoque a la vista. Hay que
+/// repetirlo tras cualquier `SetWindowPos` que toque la ventana, y repintar:
+/// al no cambiar el tamaño, nada obliga a WebView2 a hacerlo por su cuenta.
+#[cfg(windows)]
+fn reapply_transparency(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+    };
+    use windows::Win32::Graphics::Gdi::{
+        CreateRectRgn, DeleteObject, RedrawWindow, HGDIOBJ, RDW_ALLCHILDREN, RDW_INVALIDATE,
+        RDW_UPDATENOW,
+    };
+    unsafe {
+        let corner = CreateRectRgn(0, 0, 1, 1);
+        let blur = DWM_BLURBEHIND {
+            dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
+            fEnable: true.into(),
+            hRgnBlur: corner,
+            fTransitionOnMaximized: false.into(),
+        };
+        let _ = DwmEnableBlurBehindWindow(hwnd, &blur);
+        let _ = DeleteObject(HGDIOBJ(corner.0));
+        let _ = RedrawWindow(
+            Some(hwnd),
+            None,
+            None,
+            RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+        );
+    }
+}
+
+/// Vuelve a colocar la ventana por encima de las demás, sin activarla.
+///
+/// `always_on_top` se aplica una sola vez; si otra ventana «siempre visible»
+/// pasa por delante después (un reproductor flotante, el administrador de
+/// tareas), la isla queda debajo y un aviso saldría tapado. Respeta el ajuste:
+/// con «Siempre visible» apagado no se toca el orden.
+///
+/// Solo actúa si hay de verdad una ventana visible «siempre visible» por
+/// delante. Tocar el orden con `SetWindowPos` no es gratis en una ventana
+/// recortada y transparente (ver `reapply_transparency`), y hacerlo en cada
+/// cambio de tamaño, cuando la isla ya está arriba, solo arriesgaba artefactos.
+fn bring_to_front(window: &WebviewWindow) {
+    if !settings::current().always_on_top {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindow, GetWindowLongPtrW, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, GW_HWNDPREV,
+            HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST,
+        };
+        let Ok(handle) = window.hwnd() else { return };
+        let hwnd = HWND(handle.0 as _);
+
+        // Las ventanas por encima de la nuestra, de la más cercana hacia arriba.
+        // Si alguna es visible y «siempre visible», nos está tapando.
+        let covered = unsafe {
+            let mut above = GetWindow(hwnd, GW_HWNDPREV).ok();
+            let mut found = false;
+            while let Some(other) = above {
+                let topmost = GetWindowLongPtrW(other, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0;
+                if topmost && IsWindowVisible(other).as_bool() {
+                    found = true;
+                    break;
+                }
+                above = GetWindow(other, GW_HWNDPREV).ok();
+            }
+            found
+        };
+        if !covered {
+            return;
+        }
+
+        // SWP_NOACTIVATE: subir la isla no debe robar el foco a lo que el
+        // usuario esté escribiendo.
+        let raised = unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+        if raised.is_ok() {
+            reapply_transparency(hwnd);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 /// Ajusta la ventana al tamaño que pide la isla al expandirse o contraerse.
 #[tauri::command]
 fn island_resize(window: WebviewWindow, width: f64, height: f64) {
+    bring_to_front(&window);
     animate_island(&window, width, height);
 }
 
@@ -446,6 +528,14 @@ fn lyrics_current() -> lyrics::Lyrics {
 
 /// Estado actual de la batería y la corriente.
 ///
+/// Abre la aplicación que emitió un aviso, al hacer clic en él en la isla.
+///
+/// Recibe el id del aviso, no un identificador de aplicación: ver `toasts::open`.
+#[tauri::command(async)]
+fn toast_open(id: u32) -> bool {
+    toasts::open(id)
+}
+
 /// La isla lo pide al arrancar: el sondeo solo avisa de los cambios, así que
 /// sin esto no sabría si ya estaba enchufado.
 #[tauri::command(async)]
@@ -630,6 +720,7 @@ pub fn run() {
             volume_set,
             volume_toggle_mute,
             lyrics_current,
+            toast_open,
             power_state
         ])
         .setup(|app| {
@@ -729,6 +820,54 @@ pub fn run() {
                         warned = u8::MAX;
                     }
                     last = current;
+                }
+            });
+
+            // Red: la API WLAN tiene notificaciones, pero exigen callbacks
+            // sobre una DLL cargada; con una consulta cada 3 s basta y no
+            // despierta al frontend salvo ante un cambio. El estado al
+            // arrancar es la línea base y no avisa.
+            let wifi_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut last = network::read_state().ssid;
+                let mut online = network::has_internet();
+                // Lecturas seguidas sin internet: una sola puede ser un bache
+                // de NCSI al cambiar de red, y no merece un aviso.
+                let mut offline_reads = 0u32;
+                let mut announced_wifi_at: Option<std::time::Instant> = None;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    let current = network::read_state();
+                    // Los ajustes se consultan en cada vuelta para que
+                    // apagar el aviso surta efecto en caliente.
+                    let config = settings::current();
+                    if current.ssid.is_some()
+                        && current.ssid != last
+                        && config.notifications
+                        && config.notify_wifi
+                    {
+                        announced_wifi_at = Some(std::time::Instant::now());
+                        let _ = wifi_handle.emit(WIFI_EVENT, current.clone());
+                    }
+                    last = current.ssid;
+
+                    let now_online = network::has_internet();
+                    offline_reads = if now_online { 0 } else { offline_reads + 1 };
+                    let lost = online && offline_reads >= 2;
+                    // Al conectarse a una red el internet «vuelve» solo: ya
+                    // lo anuncia el aviso de Wi-Fi, y repetirlo seguido sería
+                    // ruido. Solo se anuncia la recuperación sin cambio de red.
+                    let recovered = !online
+                        && now_online
+                        && announced_wifi_at.is_none_or(|at| at.elapsed().as_secs() > 20);
+                    if (lost || recovered) && config.notifications && config.notify_internet {
+                        let _ = wifi_handle.emit(INTERNET_EVENT, InternetState { online: now_online });
+                    }
+                    if lost {
+                        online = false;
+                    } else if now_online {
+                        online = true;
+                    }
                 }
             });
 

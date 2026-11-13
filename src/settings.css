@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Paleta del proyecto: el fondo azul-negro y el verde de la isla. El verde
+   solo aparece en lo que esta activo, para que destaque sin competir. */
+@theme {
+  --color-bg: #0d0f16;
+  --color-panel: rgba(255, 255, 255, 0.028);
+  --color-line: rgba(255, 255, 255, 0.07);
+  --color-ink: #ececf1;
+  --color-muted: #7f8292;
+  --color-accent: #b7f36b;
+  --color-control: #2b2e3a;
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+
+  --animate-select-in: select-in 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+  @keyframes select-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97) translateY(-3px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/* Esta ventana no carga style.css. El fondo evita el marco blanco que se veria
+   si el WebView pintara antes que el panel, y la lista desplegable se dibuja
+   en un portal fuera del panel: la fuente ha de venir del documento. */
+@layer base {
+  html,
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  }
+}

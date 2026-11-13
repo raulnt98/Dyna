@@ -7,6 +7,7 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import SettingsSelect from "@/components/SettingsSelect.vue";
+import SettingsToggle from "@/components/SettingsToggle.vue";
 
 /** Ajustes que se guardan entre sesiones. */
 interface Settings {
@@ -28,6 +29,8 @@ interface Settings {
   notifyVolume: boolean;
   /** Avisar al bajar al 20 % y al 10 % de batería. */
   notifyLowBattery: boolean;
+  notifyWifi: boolean;
+  notifyInternet: boolean;
   /** Buscar letras sincronizadas en LRCLIB. */
   lyrics: boolean;
   /** Mostrar las notificaciones de otras aplicaciones (Teams, Outlook…). */
@@ -49,6 +52,8 @@ const DEFAULTS: Settings = {
   notifyCharger: true,
   notifyVolume: true,
   notifyLowBattery: true,
+  notifyWifi: true,
+  notifyInternet: true,
   lyrics: true,
   appNotifications: false,
   notificationApps: [],
@@ -118,28 +123,43 @@ function restoreDefaults() {
 function closeWindow() {
   call("settings_close");
 }
+
+/* Clases que se repiten en las secciones. Cadenas completas y literales: así
+   Tailwind las detecta al escanear el archivo. */
+const H2 = "mt-0 mb-2 ml-0.5 text-[11.5px] font-semibold tracking-[0.01em] text-muted";
+const PANEL = "overflow-hidden rounded-[10px] border border-line bg-panel [&>*+*]:border-t [&>*+*]:border-line";
+const ROW = "m-0 flex items-center justify-between gap-4 px-3.5 py-[11px]";
+const DESC = "text-[11.5px] leading-[1.4] text-muted";
 </script>
 
 <template>
-  <div class="settings">
-    <header class="head">
+  <div class="box-border flex min-h-screen flex-col gap-[22px] bg-bg px-[18px] pt-[18px] pb-4 font-sans text-[13px] leading-[normal] text-ink">
+    <header class="flex items-start justify-between gap-3">
       <div>
-        <h1>Ajustes</h1>
-        <p>Los cambios se aplican al instante.</p>
+        <h1 class="m-0 text-[16px] font-semibold tracking-[-0.01em]">Ajustes</h1>
+        <p class="mt-0.5 mb-0 text-[12px] text-muted">Los cambios se aplican al instante.</p>
       </div>
-      <div class="head-side">
-        <span class="saved" :class="{ visible: saved }" role="status">Guardado</span>
-        <button class="close" aria-label="Cerrar ajustes" @click="closeWindow">
-          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg>
+      <div class="flex items-center gap-3">
+        <span
+          class="text-[11.5px] text-accent transition-opacity duration-250 motion-reduce:duration-[0.01ms]"
+          :class="saved ? 'opacity-100' : 'opacity-0'"
+          role="status"
+        >Guardado</span>
+        <button
+          class="grid size-7 cursor-pointer place-items-center rounded-[7px] border-0 bg-transparent text-muted transition-colors duration-150 hover:bg-white/8 hover:text-ink"
+          aria-label="Cerrar ajustes"
+          @click="closeWindow"
+        >
+          <svg class="size-[11px] fill-none stroke-current stroke-[1.4] [stroke-linecap:round]" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg>
         </button>
       </div>
     </header>
 
-    <section class="section">
-      <h2>Posición</h2>
-      <div class="panel">
-        <div class="row">
-          <label class="text" for="pos"><span class="name">Alineación horizontal</span></label>
+    <section>
+      <h2 :class="H2">Posición</h2>
+      <div :class="PANEL">
+        <div :class="ROW">
+          <label class="grid min-w-0 gap-0.5" for="pos"><span class="font-medium">Alineación horizontal</span></label>
           <SettingsSelect
             id="pos"
             v-model="settings.position"
@@ -151,9 +171,9 @@ function closeWindow() {
           />
         </div>
 
-        <div class="row">
-          <label class="text" for="margin"><span class="name">Separación superior</span></label>
-          <div class="slider">
+        <div :class="ROW">
+          <label class="grid min-w-0 gap-0.5" for="margin"><span class="font-medium">Separación superior</span></label>
+          <div class="flex items-center gap-3">
             <input
               id="margin"
               v-model.number="settings.topMargin"
@@ -162,20 +182,21 @@ function closeWindow() {
               :max="MARGIN_MAX"
               step="2"
               :style="{ '--fill': marginFill }"
+              class="m-0 h-[18px] w-[132px] cursor-pointer appearance-none bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-slider-runnable-track]:h-[3px] [&::-webkit-slider-runnable-track]:rounded-sm [&::-webkit-slider-runnable-track]:bg-[linear-gradient(90deg,var(--color-accent)_var(--fill,0%),var(--color-control)_var(--fill,0%))] [&::-webkit-slider-thumb]:-mt-[5.5px] [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#f4f4f6] [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
             />
-            <span class="value">{{ settings.topMargin }} px</span>
+            <span class="min-w-[42px] text-right text-[12px] text-muted tabular-nums">{{ settings.topMargin }} px</span>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="section">
-      <h2>Comportamiento</h2>
-      <div class="panel">
-        <div class="row">
-          <label class="text" for="collapsed">
-            <span class="name">Vista minimizada</span>
-            <span class="desc">Cómo se ve la isla cerrada. La pestaña casi no tapa lo que hay debajo.</span>
+    <section>
+      <h2 :class="H2">Comportamiento</h2>
+      <div :class="PANEL">
+        <div :class="ROW">
+          <label class="grid min-w-0 gap-0.5" for="collapsed">
+            <span class="font-medium">Vista minimizada</span>
+            <span :class="DESC">Cómo se ve la isla cerrada. La pestaña casi no tapa lo que hay debajo.</span>
           </label>
           <SettingsSelect
             id="collapsed"
@@ -187,31 +208,26 @@ function closeWindow() {
           />
         </div>
 
-        <label class="row">
-          <span class="text">
-            <span class="name">Siempre visible</span>
-            <span class="desc">Mantiene la isla por encima de otras ventanas.</span>
-          </span>
-          <input v-model="settings.alwaysOnTop" class="switch" type="checkbox" />
-        </label>
-
-        <label class="row">
-          <span class="text">
-            <span class="name">Iniciar con Windows</span>
-            <span class="desc">La isla se abre al encender el equipo.</span>
-          </span>
-          <input v-model="settings.autostart" class="switch" type="checkbox" />
-        </label>
+        <SettingsToggle
+          v-model="settings.alwaysOnTop"
+          name="Siempre visible"
+          desc="Mantiene la isla por encima de otras ventanas."
+        />
+        <SettingsToggle
+          v-model="settings.autostart"
+          name="Iniciar con Windows"
+          desc="La isla se abre al encender el equipo."
+        />
       </div>
     </section>
 
-    <section class="section">
-      <h2>Reproducción</h2>
-      <div class="panel">
-        <div class="row">
-          <label class="text" for="skip">
-            <span class="name">Salto de los botones</span>
-            <span class="desc">Apple Music ignora esta función.</span>
+    <section>
+      <h2 :class="H2">Reproducción</h2>
+      <div :class="PANEL">
+        <div :class="ROW">
+          <label class="grid min-w-0 gap-0.5" for="skip">
+            <span class="font-medium">Salto de los botones</span>
+            <span :class="DESC">Apple Music ignora esta función.</span>
           </label>
           <SettingsSelect
             id="skip"
@@ -225,409 +241,107 @@ function closeWindow() {
           />
         </div>
 
-        <label class="row">
-          <span class="text">
-            <span class="name">Letras sincronizadas</span>
-            <span class="desc">
-              Solo con servicios de streaming. Busca la letra en lrclib.net enviando título y
-              artista.
-            </span>
-          </span>
-          <input v-model="settings.lyrics" class="switch" type="checkbox" />
-        </label>
+        <SettingsToggle
+          v-model="settings.lyrics"
+          name="Letras sincronizadas"
+          desc="Solo con servicios de streaming. Busca la letra en lrclib.net enviando título y artista."
+        />
       </div>
     </section>
 
-    <section class="section">
-      <h2>Avisos del sistema</h2>
-      <div class="panel">
-        <label class="row">
-          <span class="text">
-            <span class="name">Avisar de sucesos del sistema</span>
-            <span class="desc">La isla se ensancha unos segundos y vuelve a su sitio.</span>
-          </span>
-          <input v-model="settings.notifications" class="switch" type="checkbox" />
-        </label>
-
-        <label class="row sub" :class="{ off: !settings.notifications }">
-          <span class="text">
-            <span class="name">Cargador</span>
-            <span class="desc">Al conectarlo se abre con la batería cargándose.</span>
-          </span>
-          <input
-            v-model="settings.notifyCharger"
-            class="switch"
-            type="checkbox"
-            :disabled="!settings.notifications"
-          />
-        </label>
-
-        <label class="row sub" :class="{ off: !settings.notifications }">
-          <span class="text">
-            <span class="name">Volumen</span>
-            <span class="desc">Al subirlo, bajarlo o silenciar. Con la isla abierta no aparece.</span>
-          </span>
-          <input
-            v-model="settings.notifyVolume"
-            class="switch"
-            type="checkbox"
-            :disabled="!settings.notifications"
-          />
-        </label>
-
-        <label class="row sub" :class="{ off: !settings.notifications }">
-          <span class="text">
-            <span class="name">Batería baja</span>
-            <span class="desc">Al llegar al 20 % y al 10 % sin cargador.</span>
-          </span>
-          <input
-            v-model="settings.notifyLowBattery"
-            class="switch"
-            type="checkbox"
-            :disabled="!settings.notifications"
-          />
-        </label>
+    <section>
+      <h2 :class="H2">Avisos del sistema</h2>
+      <div :class="PANEL">
+        <SettingsToggle
+          v-model="settings.notifications"
+          name="Avisar de sucesos del sistema"
+          desc="La isla se ensancha unos segundos y vuelve a su sitio."
+        />
+        <SettingsToggle
+          v-model="settings.notifyCharger"
+          sub
+          :disabled="!settings.notifications"
+          name="Cargador"
+          desc="Al conectarlo se abre con la batería cargándose."
+        />
+        <SettingsToggle
+          v-model="settings.notifyVolume"
+          sub
+          :disabled="!settings.notifications"
+          name="Volumen"
+          desc="Al subirlo, bajarlo o silenciar. Con la isla abierta no aparece."
+        />
+        <SettingsToggle
+          v-model="settings.notifyLowBattery"
+          sub
+          :disabled="!settings.notifications"
+          name="Batería baja"
+          desc="Al llegar al 20 % y al 10 % sin cargador."
+        />
+        <SettingsToggle
+          v-model="settings.notifyWifi"
+          sub
+          :disabled="!settings.notifications"
+          name="Wi-Fi"
+          desc="Al conectarse a una red, con el nombre de la red."
+        />
+        <SettingsToggle
+          v-model="settings.notifyInternet"
+          sub
+          :disabled="!settings.notifications"
+          name="Internet"
+          desc="Al perder la conexión a internet y al recuperarla."
+        />
       </div>
     </section>
 
-    <section class="section">
-      <h2>Notificaciones de aplicaciones</h2>
-      <div class="panel">
-        <label class="row">
-          <span class="text">
-            <span class="name">Mostrar notificaciones en la isla</span>
-            <span class="desc">
-              Lee las notificaciones de Windows para enseñar remitente y mensaje. Nada sale del
-              equipo ni se guarda. Requiere tener activado el acceso a notificaciones en Windows.
-            </span>
-          </span>
-          <input v-model="settings.appNotifications" class="switch" type="checkbox" />
-        </label>
+    <section>
+      <h2 :class="H2">Notificaciones de aplicaciones</h2>
+      <div :class="PANEL">
+        <SettingsToggle
+          v-model="settings.appNotifications"
+          name="Mostrar notificaciones en la isla"
+          desc="Lee las notificaciones de Windows para enseñar remitente y mensaje. Nada se guarda. Con WhatsApp activado, se descarga además la foto de perfil del remitente desde los servidores de WhatsApp. Requiere tener activado el acceso a notificaciones en Windows."
+        />
 
         <template v-if="settings.appNotifications">
-          <p v-if="settings.notificationApps.length === 0" class="row empty">
+          <p
+            v-if="settings.notificationApps.length === 0"
+            class="m-0 px-3.5 py-[11px] text-[11.5px] leading-[1.45] text-muted"
+          >
             Aún no se ha detectado ninguna aplicación. Aparecerán aquí cuando envíen una
             notificación; todas empiezan desactivadas.
           </p>
-          <div v-else class="app-list">
-            <label v-for="entry in settings.notificationApps" :key="entry.name" class="row sub">
-              <span class="text"><span class="name">{{ entry.name }}</span></span>
-              <input v-model="entry.enabled" class="switch" type="checkbox" />
-            </label>
+          <!-- Con muchas aplicaciones detectadas la lista haría crecer la
+               ventana sin límite: se queda en un alto fijo y se desplaza por
+               dentro. -->
+          <div
+            v-else
+            class="max-h-44 overflow-y-auto [scrollbar-color:rgba(255,255,255,0.16)_transparent] [scrollbar-width:thin] [&>*+*]:border-t [&>*+*]:border-line"
+          >
+            <SettingsToggle
+              v-for="entry in settings.notificationApps"
+              :key="entry.name"
+              v-model="entry.enabled"
+              sub
+              :name="entry.name"
+            />
           </div>
         </template>
       </div>
-      <p v-if="settings.appNotifications && settings.notificationApps.length > 0" class="note">
+      <p
+        v-if="settings.appNotifications && settings.notificationApps.length > 0"
+        class="mt-2 mb-0 ml-0.5 text-[11.5px] text-muted"
+      >
         {{ enabledApps }} de {{ settings.notificationApps.length }} activadas.
       </p>
     </section>
 
-    <footer class="foot">
-      <button class="ghost" @click="restoreDefaults">Restaurar valores</button>
+    <footer class="mt-auto">
+      <button
+        class="cursor-pointer rounded-lg border border-line bg-transparent px-[13px] py-[7px] text-[12px] text-[#c6c8d3] transition-colors duration-150 hover:bg-white/6 hover:text-ink"
+        @click="restoreDefaults"
+      >Restaurar valores</button>
     </footer>
   </div>
 </template>
-
-<style scoped>
-/* Paleta del proyecto: el fondo azul-negro y el verde de la isla. El verde
-   solo aparece en lo que esta activo, para que destaque sin competir. */
-.settings {
-  --bg: #0d0f16;
-  --panel: rgba(255, 255, 255, 0.028);
-  --line: rgba(255, 255, 255, 0.07);
-  --text: #ececf1;
-  --muted: #7f8292;
-  --accent: #b7f36b;
-
-  min-height: 100vh;
-  box-sizing: border-box;
-  padding: 18px 18px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  color: var(--text);
-  background: var(--bg);
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  font-size: 13px;
-}
-
-/* --- Cabecera --- */
-.head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.head h1 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.head p {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.head-side {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.saved {
-  color: var(--accent);
-  font-size: 11.5px;
-  opacity: 0;
-  transition: opacity 0.25s;
-}
-
-.saved.visible {
-  opacity: 1;
-}
-
-.close {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.close svg {
-  width: 11px;
-  height: 11px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-}
-
-.close:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
-}
-
-/* --- Secciones: un titulo discreto y un panel de filas con lineas finas --- */
-.section h2 {
-  margin: 0 0 8px 2px;
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.panel {
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0;
-  padding: 11px 14px;
-}
-
-.row + .row,
-.row + .app-list,
-.app-list .row + .row {
-  border-top: 1px solid var(--line);
-}
-
-label.row {
-  cursor: pointer;
-}
-
-.text {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.name {
-  font-weight: 500;
-}
-
-.desc {
-  color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.4;
-}
-
-/* Opciones que dependen de la de arriba: sangradas y algo mas discretas. */
-.row.sub {
-  padding-left: 28px;
-}
-
-.row.sub .name {
-  font-weight: 450;
-}
-
-.row.off {
-  opacity: 0.42;
-  cursor: default;
-}
-
-.row.empty {
-  display: block;
-  color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.45;
-  border-top: 1px solid var(--line);
-}
-
-/* Con muchas aplicaciones detectadas la lista haria crecer la ventana sin
-   limite: se queda en un alto fijo y se desplaza por dentro. */
-.app-list {
-  max-height: 176px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
-}
-
-.note {
-  margin: 8px 0 0 2px;
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-/* --- Controles --- */
-.switch {
-  position: relative;
-  flex: none;
-  width: 34px;
-  height: 20px;
-  margin: 0;
-  border-radius: 999px;
-  background: #2b2e3a;
-  cursor: pointer;
-  appearance: none;
-  transition: background 0.18s;
-}
-
-.switch::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #c9ccd8;
-  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background 0.18s;
-}
-
-.switch:checked {
-  background: var(--accent);
-}
-
-.switch:checked::after {
-  background: var(--bg);
-  transform: translateX(14px);
-}
-
-.switch:disabled {
-  cursor: default;
-}
-
-.switch:focus-visible,
-input[type="range"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.slider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.value {
-  min-width: 42px;
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-input[type="range"] {
-  width: 132px;
-  height: 18px;
-  margin: 0;
-  background: transparent;
-  cursor: pointer;
-  appearance: none;
-}
-
-input[type="range"]::-webkit-slider-runnable-track {
-  height: 3px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--accent) var(--fill, 0%), #2b2e3a var(--fill, 0%));
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  width: 14px;
-  height: 14px;
-  margin-top: -5.5px;
-  border-radius: 50%;
-  background: #f4f4f6;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-  appearance: none;
-}
-
-/* --- Pie --- */
-.foot {
-  margin-top: auto;
-}
-
-.ghost {
-  padding: 7px 13px;
-  color: #c6c8d3;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.ghost:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .switch,
-  .switch::after,
-  .saved {
-    transition-duration: 0.01ms;
-  }
-}
-</style>
-
-<!-- Global, no `scoped`: esta ventana no importa style.css, que es quien pone
-     `margin: 0` al body. Sin esto el navegador deja 8 px de margen sobre
-     fondo blanco y se ve un marco blanco alrededor del panel. -->
-<style>
-html,
-body {
-  margin: 0;
-  background: #0d0f16;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
-}
-</style>

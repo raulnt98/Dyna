@@ -51,6 +51,28 @@ significa tocar ese componente, no los dos contenedores.
 
 Solo `island.ts` registra `MotionPlugin`.
 
+### Estilos: Tailwind primero
+
+El diseño va con utilidades de Tailwind v4 en las plantillas; el CSS a mano es la
+excepción y tiene que tener un motivo. Se queda en CSS lo que Tailwind no expresa
+bien o no debe separarse de su contexto: `@keyframes`, `@property`, `::before`/
+`::after` con máscaras, selectores `:has()` sobre la isla, y las medidas que Rust
+replica (muescas, `island-morph`). Eso vive en `style.css` (isla) y en el `<style>`
+de `IslandApp.vue` (muescas).
+
+- El panel de ajustes tiene su propia hoja, `settings.css`: esa ventana no carga
+  `style.css`, así que no hereda su tema ni sus variables.
+- Un elemento no debe llevar dos utilidades que fijen la misma propiedad (por
+  ejemplo dos `size-*` o dos `bg-*`): Tailwind las emite en un orden que no es el
+  del atributo y gana una u otra. Compón cada variante con sus clases completas.
+- Las clases tienen que aparecer **literales** en el archivo; Tailwind no ve
+  `` `bg-${color}` ``. Por eso hay constantes de clases en el `<script>`.
+- No añadas reglas globales sin capa del estilo `button { font: inherit }`: ganan
+  a todas las utilidades (que van en una capa) y rompen tamaños de texto sin
+  avisar. Preflight ya normaliza los botones.
+- Hay clases sin estilos que son asas: `island-stage`, `track-progress` (la
+  localiza `startScrub` con `querySelector`). No las borres por «vacías».
+
 ### Contrato frontend ↔ Rust
 
 Los comandos se registran en `generate_handler!` de `src-tauri/src/lib.rs`.
@@ -65,6 +87,7 @@ error de compilación.
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
 | Letras | `lyrics_current` | `lyrics.rs` |
 | Alimentación | `power_state` | `power.rs` |
+| Notificaciones | `toast_open` | `toasts.rs` |
 
 Eventos que emite el backend:
 
@@ -76,6 +99,13 @@ Eventos que emite el backend:
 - `power://low` — la batería cruzó el 20 % o el 10 % sin cargador. Se emite una
   vez por umbral y se rearma al enchufar o pasar del 25 %. Lo escucha
   `src/lib/systemEvents.ts`.
+- `network://wifi` — el equipo se conectó a una red Wi-Fi o cambió de red
+  (`WifiState` en `network.rs`, vía la API WLAN). Sondeo de 3 s; el estado al
+  arrancar es la línea base y no avisa. Lo escucha `src/lib/systemEvents.ts`.
+- `network://internet` — se perdió (o recuperó) la salida a internet, según
+  `INetworkListManager` (`InternetState`). La pérdida exige dos lecturas
+  seguidas; la recuperación se omite si se acaba de anunciar una red Wi-Fi.
+  Interruptor `notifyInternet`.
 - `toast://received` — notificación nueva de otra aplicación (`AppToast` en
   `toasts.rs`). Solo se emite si `appNotifications` está activo y la app está
   activada en `notificationApps`. **Contenido privado: nunca a logs ni a disco.**
@@ -86,8 +116,9 @@ Eventos que emite el backend:
   (`VolumeState` en `volume.rs`). Es un sondeo de 120 ms; la isla lo ignora con
   el panel abierto, que ya muestra su propio control.
 
-Cada aviso del sistema (cargador, volumen, batería baja) tiene su interruptor
-propio —`notifyCharger`, `notifyVolume`, `notifyLowBattery`— además de
+Cada aviso del sistema (cargador, volumen, batería baja, Wi-Fi) tiene su
+interruptor propio —`notifyCharger`, `notifyVolume`, `notifyLowBattery`,
+`notifyWifi`— además de
 `notifications`, el general. Un tipo nuevo necesita el suyo, y los dos se
 consultan en cada vuelta de su sondeo para que apagarlos surta efecto en caliente.
 
@@ -140,23 +171,41 @@ sobre una ventana transparente, lo que además de dejar pasar los clics impide
 que se dibuje. El comando `island_set_interactive` existe, pero la isla compacta
 mide 104 × 32 px y por eso no hace falta.
 
-**Los avisos no abren la isla, la ensanchan.** `src/lib/notifications.ts` es
-una cola: un aviso interrumpe la píldora compacta, vive unos segundos y se
+**Los avisos del sistema despliegan la isla.** `src/lib/notifications.ts` es
+una cola: un aviso interrumpe lo que muestre la isla, vive unos segundos y se
 retira dejándola como estaba. Dos del mismo `kind` se reemplazan en el sitio en
 vez de encolarse —al enchufar y desenchufar seguido interesa el estado final—,
 y uno de otro tipo espera a que el visible cumpla su tiempo mínimo, porque
 relevarlo antes lo dejaría a medio dibujar.
 
-**Un aviso se dibuja de dos formas según el estado de la isla.** Cerrada,
-ensancha la píldora. Abierta, entra como **franja** (`.notice-strip`) sin
-cerrar el panel: el usuario lo abrió a propósito y puede estar usando el
-volumen o la barra de progreso. La franja va fuera de `.island-content`,
-porque ahí dentro `v-auto-animate` gestionaría su entrada y pelearía con su
-propia animación. Y **ocupa sitio en lugar de superponerse**: colocada encima
-tapaba justo la fila del título, y mover el contenido es preferible a
-ocultarlo; de eso se encarga la regla `.island:has(.notice-strip)`.
+Cerrada, la isla se abre al tamaño del panel (330 × 108) con un icono grande, un
+título y un subtítulo: es el formato `data.deployed` de Wi-Fi, internet,
+volumen, batería baja y cargador desconectado (`NoticeIcon.vue` dibuja el icono;
+`level` añade una barra). El cargador conectado (`data.large`) y las
+notificaciones de apps (`data.tall`, 340 × 60) tienen su propio panel. Cada
+formato necesita su rama en `targetSize` (`IslandApp.vue`) y su estado en
+`TheIsland.vue`, o la ventana nativa no crece con él.
 
-El ancho sale de `noticeWidth()`, que lo **estima a partir del texto**: la
+El mensaje de una notificación que no cabe en su fila **se desplaza** (`ToastMarquee.vue`)
+en lugar de crecer o cortarse con «…»: la píldora y la ventana nativa son de tamaño
+fijo. La distancia se mide sobre el texto dibujado, pero cuánto debe durar el aviso
+se **estima** por caracteres (`toastDuration` en `IslandApp.vue`), porque el temporizador
+vive en la cola, antes de que haya nada dibujado.
+
+`island_resize` reafirma la ventana por encima de las demás (`bring_to_front`,
+sin activarla) en cada cambio de tamaño: `always_on_top` se aplica una vez, y si
+otra ventana «siempre visible» pasa por delante, un aviso saldría tapado.
+
+**Un aviso ocupa la isla entera, esté como esté.** Cerrada, crece al tamaño de su
+panel. Abierta conserva su tamaño (con o sin letra) y el panel del aviso
+sustituye al contenido —`.island-content` se desmonta mientras dure— para
+devolverlo al retirarse. Antes entraba como franja encima del panel y apretaba
+el reproductor; se descartó porque tapaba o comprimía justo lo que el usuario
+estaba usando. Con un aviso en pantalla, el primer toque lo descarta, esté la
+isla abierta o cerrada. El volumen es la excepción: con la isla abierta se
+ignora, porque su panel ya tiene el deslizador.
+
+Si un aviso no trae panel propio, la píldora se ensancha: el ancho sale de `noticeWidth()`, que lo **estima a partir del texto**: la
 ventana nativa se redimensiona desde Rust antes de que el CSS pinte, así que no
 se puede medir el elemento ya dibujado. `TheIsland.vue` llama a esa misma
 función para el `style` de la píldora; si cada uno usara su propio número, la
@@ -192,6 +241,11 @@ letras ven todos el mismo texto (tiene pruebas: `cargo test --lib`). Y la sesió
 «actual» de Windows es la última con la que se interactuó, no la que suena:
 `current_session` prefiere la que está reproduciendo.
 
+**Sin medios, la isla muestra la vista de inicio (`home`).** `displayMode` en `IslandApp.vue` cambia
+`music` por `home` cuando no hay sesión SMTC, o hay una vacía y parada; una pista en pausa
+cuenta como medio. `mode` no cambia, así que al sonar algo la isla vuelve sola al reproductor.
+`home` no se elige a mano y no está en la lista de actividades de la demo.
+
 **Un comando que espera algo no puede correr en el hilo principal.** En Tauri
 los comandos sin `async` se ejecutan en el hilo que dibuja la ventana: si se
 queda esperando, la isla se congela y Windows la marca «no responde», cosa que
@@ -208,10 +262,24 @@ el separador antes de consultar. Y `/api/get` exige que la duración coincida,
 cosa que falla con recopilatorios, así que se reintenta con `/api/search`, más
 tolerante.
 
-**Las letras son la única salida de red del proyecto.** El ajuste `lyrics` la
-desactiva por completo; `lyrics_current` comprueba `settings::current().lyrics`
-antes de consultar. Cualquier función nueva que envíe datos fuera del equipo
-necesita su propio interruptor en los ajustes y una línea en el README.
+**Las letras y la foto del remitente son las únicas salidas de red del proyecto.**
+El ajuste `lyrics` desactiva la primera por completo; `lyrics_current` comprueba
+`settings::current().lyrics` antes de consultar. Cualquier función nueva que
+envíe datos fuera del equipo necesita su propio interruptor en los ajustes y una
+línea en el README.
+
+**La foto del remitente (`avatars.rs`) lee contenido privado y sale a la red**,
+y se apoya en algo no documentado: la base `wpndatabase.db` de Windows. Reglas
+que no se deben relajar: no tiene interruptor propio (se quitó a propósito),
+así que el permiso es activar la app en `notificationApps` y el panel de ajustes
+debe seguir avisando de que se descarga la foto; solo para apps que el usuario
+activó; base abierta **solo para lectura** y con la ruta con barras normales
+(con barras invertidas SQLite no la abre); descarga únicamente de
+`ALLOWED_HOSTS`, sin redirecciones, con tope de tamaño y tipo decidido por el
+contenido; nada a disco ni a logs. El `Id` del listener coincide con la columna
+`Id` de `Notification` (verificado). La hora de los archivos de `wpnidm` no sirve
+para emparejar: es la del servidor. Para añadir otra app se amplía la lista de
+hosts y se prueba; no se abre a cualquier dirección.
 
 Los avisos del cargador no salen del equipo, pero siguen el mismo patrón de
 interruptor: el ajuste `notifications` se consulta **en cada vuelta** del

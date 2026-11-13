@@ -7,7 +7,6 @@
  */
 import {
   IconArrowDownToArc,
-  IconBatteryExclamation,
   IconBell,
   IconBolt,
   IconClock,
@@ -32,7 +31,9 @@ import {
   IconVolumeOff,
   IconX,
 } from "@tabler/icons-vue";
-import { computed } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import NoticeIcon from "@/components/NoticeIcon.vue";
+import ToastMarquee from "@/components/ToastMarquee.vue";
 import { vAutoAnimate } from "@formkit/auto-animate/vue";
 import type { Activity } from "@/lib/activities";
 import { noticeWidth } from "@/lib/notifications";
@@ -81,22 +82,59 @@ const props = defineProps<{
 /**
  * La isla se dibuja como píldora, en vez de como panel.
  *
- * Un aviso no cierra el panel: abierto se muestra como franja dentro de él,
- * porque el usuario lo abrió a propósito y puede estar usando el volumen o la
- * barra de progreso justo cuando entra el aviso.
+ * Un aviso ocupa la isla entera, cerrada o abierta: el panel del aviso sustituye
+ * al contenido mientras dura y la isla recupera lo que mostraba al retirarse.
+ * Abierta conserva su tamaño (con o sin letra); cerrada crece al del panel.
  */
 const showsPill = computed(() => !props.expanded);
 
 /**
+ * Hora y fecha de la vista de inicio.
+ *
+ * Se actualiza cada segundo con un temporizador propio en lugar de depender del
+ * padre: la demo web y la ventana nativa montan este componente por separado, y
+ * ninguna debería tener que acordarse de pasarle el reloj.
+ */
+const now = ref(new Date());
+let homeTimer: number | undefined;
+onMounted(() => {
+  homeTimer = window.setInterval(() => (now.value = new Date()), 1000);
+});
+onUnmounted(() => {
+  if (homeTimer !== undefined) window.clearInterval(homeTimer);
+});
+const homeTime = computed(() =>
+  new Intl.DateTimeFormat("es", { hour: "2-digit", minute: "2-digit", hour12: false }).format(now.value),
+);
+const homeDate = computed(() =>
+  new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long" }).format(now.value),
+);
+
+/**
  * Aviso grande: al enchufar el cargador la isla crece al tamaño del panel y
- * enseña la batería llenándose. Solo con la isla cerrada: abierta, el usuario
- * ya está usando el panel y el aviso entra como franja (ver arriba).
+ * enseña la batería llenándose.
  *
  * Reutiliza las medidas y la clase `is-expanded` del panel, de modo que las
  * muescas de las esquinas y el recorte de la ventana nativa (que se basa en la
  * altura) encajan sin código nuevo.
  */
-const showsCharge = computed(() => !props.expanded && props.notice?.data?.large === true);
+const showsCharge = computed(() => props.notice?.data?.large === true);
+
+/**
+ * Aviso desplegado: la isla se abre al tamaño del panel (330 × 108) con un icono
+ * grande, un título y un subtítulo, en vez de ensanchar la píldora. Es el formato
+ * de los avisos del sistema (Wi-Fi, internet, volumen, batería); el cargador y
+ * las notificaciones de apps tienen el suyo. Como los otros, reutiliza
+ * `is-expanded` para que las muescas y el recorte nativo encajen.
+ */
+const showsDeployed = computed(() => props.notice?.data?.deployed === true);
+const deployedTitle = computed(() => String(props.notice?.data?.title ?? props.notice?.label ?? ""));
+const deployedSubtitle = computed(() => String(props.notice?.data?.subtitle ?? ""));
+/** Nivel de 0 a 100 para la barra (volumen, batería); `null` si el aviso no lleva. */
+const deployedLevel = computed(() => {
+  const level = props.notice?.data?.level;
+  return typeof level === "number" ? Math.min(100, Math.max(0, level)) : null;
+});
 /**
  * Pestaña mínima: la isla cerrada, sin ningún aviso en curso, con ese estilo
  * elegido. 48 × 8 px, en sincronía con `TAB` de IslandApp.vue y con la forma
@@ -112,10 +150,17 @@ const chargePercent = computed(() => Number(props.notice?.data?.percent ?? 0));
  * y el mensaje. Igual que el aviso del cargador, reutiliza `is-expanded` para
  * que las muescas y el recorte de la ventana (que se basa en la altura) encajen.
  */
-const showsToast = computed(() => !props.expanded && props.notice?.data?.tall === true);
+const showsToast = computed(() => props.notice?.data?.tall === true);
+/** Algún panel de aviso está a la vista: ocupa la isla entera y oculta su contenido. */
+const showsPanel = computed(() => showsCharge.value || showsDeployed.value || showsToast.value);
 const toastApp = computed(() => String(props.notice?.data?.app ?? ""));
 const toastTitle = computed(() => String(props.notice?.data?.title ?? ""));
 const toastBody = computed(() => String(props.notice?.data?.body ?? ""));
+/** Foto del remitente, si la hay; si no, el avatar es la inicial de la aplicación. */
+const toastAvatar = computed(() => {
+  const avatar = props.notice?.data?.avatar;
+  return typeof avatar === "string" && avatar.startsWith("data:image/") ? avatar : "";
+});
 /** Inicial de la aplicación, que hace de avatar: Windows no entrega el logo. */
 const toastInitial = computed(() => toastApp.value.trim().charAt(0).toUpperCase() || "!");
 
@@ -127,7 +172,7 @@ const toastInitial = computed(() => toastApp.value.trim().charAt(0).toUpperCase(
  * su ventana no se desincronicen.
  */
 const compactWidth = computed(() => {
-  if (!showsPill.value || showsCharge.value || showsToast.value || showsTab.value) return undefined;
+  if (!showsPill.value || showsCharge.value || showsToast.value || showsDeployed.value || showsTab.value) return undefined;
   const width = props.notice ? noticeWidth(props.notice.label) : 116;
   return { width: `${width}px` };
 });
@@ -145,6 +190,36 @@ const skipIcons = computed(() => {
   const key = props.skipSeconds as keyof typeof SKIP_ICONS;
   return SKIP_ICONS[key] ?? SKIP_ICONS[10];
 });
+
+/* Clases compartidas. Los botones no mezclan utilidades que se pisen entre sí
+   (tamaño, color): el orden en que Tailwind las emite no es el del atributo. */
+/* Color de cada aviso. Los tipos sin tono propio (notificaciones) no llevan fondo. */
+const NOTICE_TONE: Record<string, string> = {
+  power: "bg-green/16 text-green",
+  volume: "bg-white/14 text-white",
+  battery: "bg-[rgba(255,138,112,.18)] text-[#ff8a70]",
+  internet: "bg-[rgba(255,138,112,.18)] text-[#ff8a70]",
+  wifi: "bg-[rgba(110,180,255,.16)] text-[#6eb4ff]",
+};
+const noticeTone = (kind: string) => NOTICE_TONE[kind] ?? "";
+const RING_PULSE = "grid size-6 flex-none animate-[ring-pulse_1.2s_ease-in-out_infinite] place-items-center rounded-full bg-[#46bd73] text-white [&>svg]:size-[13px]";
+const TOP = "flex min-w-0 items-center justify-start gap-[9px]";
+const COPY = "grid min-w-0 flex-1 gap-0.5";
+const COPY_STRONG = "truncate text-[11px] font-[650]";
+const COPY_SMALL = "truncate text-[8px] text-[#a2a2a8]";
+const CONTACT_AVATAR = "border-white/15 bg-[linear-gradient(145deg,#f8d7aa,#b17aa2_58%,#5a477f)] text-[16px] font-semibold text-white";
+const PLAY = "size-[30px] text-[#f0f0f4] [&>svg]:size-5";
+const DISMISS = "grid size-[25px] place-items-center rounded-full text-[#92929c] [&>svg]:size-3.5";
+const CONTROL = "size-[26px] text-[#f0f0f4] [&>svg]:size-[17px]";
+const SKIP = "size-[22px] text-[#b4b4bd] [&>svg]:size-[15px]";
+const CALL_CONTROL = "size-[33px] text-[#f0f0f4] [&>svg]:size-[17px]";
+const AVATAR = "grid size-[42px] flex-none place-items-center rounded-[13px] border [&>svg]:size-[19px]";
+const MC = "grid flex-none place-items-center rounded-full transition-[color,scale] duration-[160ms] [&>svg]:stroke-2";
+const MC_HOVER = "hover:scale-[1.12] hover:text-white";
+const ICON_ACTION = "grid size-5 place-items-center rounded-md p-0 transition-[color,background-color] duration-150 [&>svg]:size-3.5";
+const ALBUM = "grid flex-none place-items-center overflow-hidden border border-white/12 font-bold shadow-[inset_0_0_20px_rgba(44,23,60,.2)]";
+const ALBUM_ART_BG = "bg-[radial-gradient(circle_at_70%_26%,#f6d29a_0_12%,transparent_13%),linear-gradient(145deg,#f0bc88,#a85c76_55%,#4c397a)] text-white/92";
+const ALBUM_IMG = "block size-full object-cover [image-rendering:auto]";
 
 const emit = defineEmits<{
   (e: "island-click", event: MouseEvent): void;
@@ -216,7 +291,7 @@ function onSeekKeydown(event: KeyboardEvent) {
     :class="[
       'island island-morph',
       {
-        'is-expanded': expanded || showsCharge || showsToast,
+        'is-expanded': expanded || showsCharge || showsToast || showsDeployed,
         'is-charge': showsCharge,
         'is-toast': showsToast,
         'is-tab': showsTab,
@@ -224,11 +299,11 @@ function onSeekKeydown(event: KeyboardEvent) {
       },
       `mode-${mode}`,
       { 'has-lyrics': expanded && lyricsOpen && lyricsAvailable },
-      showsToast
+      showsToast && !expanded
         ? 'w-[340px] h-[60px] rounded-[24px]'
         : showsTab
           ? 'w-[48px] h-[8px] rounded-[4px]'
-          : showsPill && !showsCharge
+          : showsPill && !showsCharge && !showsDeployed
             ? 'h-[34px] rounded-[18px]'
             : 'w-[330px] h-[108px] rounded-[24px]',
     ]"
@@ -253,144 +328,161 @@ function onSeekKeydown(event: KeyboardEvent) {
          `v-auto-animate` pelearía con su animación. -->
     <div
       v-if="showsCharge"
-      class="charge-panel"
+      class="absolute inset-0 z-1 isolate flex animate-[island-fade-in_.3s_ease-out_.16s_both] items-center justify-center gap-[26px]"
       :style="{ '--pct': chargePercent }"
       aria-hidden="true"
     >
-      <div class="charge-battery">
-        <div class="charge-body">
+      <div class="flex items-center">
+        <div class="relative grid h-[46px] w-[92px] place-items-center overflow-hidden rounded-[13px] border-2 border-white/70">
           <div class="charge-fill"></div>
-          <IconBolt class="charge-bolt" />
+          <IconBolt class="relative z-1 size-[22px] animate-[charge-pulse_1.1s_ease-in-out_.4s_infinite] text-[#0a0c0a]" />
         </div>
-        <span class="charge-cap"></span>
+        <span class="ml-[3px] h-[18px] w-[5px] rounded-[0_3px_3px_0] bg-white/70"></span>
       </div>
-      <div class="charge-copy">
-        <strong class="charge-percent"></strong>
-        <small>Cargando</small>
+      <div class="flex flex-col gap-px">
+        <strong class="charge-percent text-[34px] leading-none font-bold tabular-nums"></strong>
+        <small class="text-[12px] font-semibold tracking-[.02em] text-green">Cargando</small>
       </div>
+    </div>
+
+    <!-- Aviso del sistema desplegado. La `key` es solo el tipo: un aviso del mismo
+         tipo (el volumen, que cambia con cada pulsación) actualiza el texto y la
+         barra en el sitio. Si la `key` incluyera el valor, cada pulsación
+         remontaría el panel y repetiría la animación de entrada, y tres
+         pulsaciones se verían como tres avisos. -->
+    <div
+      v-if="showsDeployed && notice"
+      :key="notice.kind"
+      class="absolute inset-0 z-1 isolate flex animate-[island-fade-in_.3s_ease-out_.16s_both] items-center gap-4 px-6"
+      aria-hidden="true"
+    >
+      <span
+        class="notice-icon grid size-14 flex-none place-items-center rounded-full [&>svg]:size-7"
+        :class="[`notice-${notice.kind}`, noticeTone(notice.kind)]"
+      >
+        <NoticeIcon :kind="notice.kind" :muted="notice.data?.muted === true" />
+      </span>
+      <span class="grid min-w-0 flex-1 gap-1">
+        <strong class="truncate text-[18px] leading-[1.15] font-semibold text-white/96">{{ deployedTitle }}</strong>
+        <span v-if="deployedSubtitle" class="truncate text-[12px] text-white/60 tabular-nums">{{ deployedSubtitle }}</span>
+        <span v-if="deployedLevel !== null" class="mt-1 block h-1.5 overflow-hidden rounded-full bg-white/15">
+          <span class="block h-full rounded-[inherit] bg-white/90 transition-[width] duration-150 ease-out" :style="{ width: `${deployedLevel}%` }"></span>
+        </span>
+      </span>
     </div>
 
     <!-- Notificación de otra aplicación. Cada una lleva `key` para que el
          contenido se renueve al relevarse por otra aún con la isla alta. -->
-    <div v-if="showsToast" :key="`${toastApp}${toastTitle}${toastBody}`" class="toast-panel" aria-hidden="true">
-      <span class="toast-avatar">{{ toastInitial }}</span>
-      <span class="toast-copy">
-        <span class="toast-app">{{ toastApp }}</span>
-        <strong class="toast-title" :class="{ 'is-solo': !toastBody }">{{ toastTitle }}</strong>
-        <span v-if="toastBody" class="toast-body">{{ toastBody }}</span>
+    <div v-if="showsToast" :key="`${toastApp}${toastTitle}${toastBody}`" class="absolute inset-0 z-1 isolate flex animate-[island-fade-in_.3s_ease-out_.14s_both] items-center gap-[11px] pr-[18px] pl-4" aria-hidden="true">
+      <img v-if="toastAvatar" :src="toastAvatar" alt="" class="size-[34px] flex-none rounded-full object-cover" />
+      <span v-else class="grid size-[34px] flex-none place-items-center rounded-full bg-green text-[15px] font-bold text-[#0a0c0a]">{{ toastInitial }}</span>
+      <span class="grid min-w-0 flex-1 gap-1 text-[9px]">
+        <span class="text-[9.5px] leading-[1.45] font-semibold tracking-[.06em] text-[#d4d4db] uppercase">{{ toastApp }}</span>
+        <!-- Sin cuerpo, el texto único ocupa la fila del mensaje y puede ir a dos
+             líneas. Con cuerpo, cada fila es una sola línea: la píldora de 60 px
+             no da más de sí. -->
+        <strong
+          class="text-[10px] leading-[1.2] text-white/96"
+          :class="toastBody
+            ? 'truncate font-semibold'
+            : 'overflow-hidden font-medium [overflow-wrap:anywhere] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]'"
+        >{{ toastTitle }}</strong>
+        <ToastMarquee v-if="toastBody" :text="toastBody" />
       </span>
     </div>
 
-    <div v-if="showsPill && !showsCharge && !showsToast && !showsTab" class="island-collapsed" aria-hidden="true">
+    <div v-if="showsPill && !showsCharge && !showsToast && !showsDeployed && !showsTab" class="island-collapsed" aria-hidden="true">
       <!-- Un aviso manda sobre el modo: interrumpe, se muestra unos segundos
            y al retirarse la isla recupera lo que estaba enseñando. -->
       <template v-if="notice">
         <span
-          class="notice-icon"
-          :class="[`notice-${notice.kind}`, { 'is-charging': notice.data?.plugged }]"
+          class="notice-icon grid size-5 flex-none place-items-center rounded-full [&>svg]:size-[13px]"
+          :class="[`notice-${notice.kind}`, noticeTone(notice.kind), { 'is-charging': notice.data?.plugged }]"
           :style="{ '--pct': Number(notice.data?.percent ?? 0) }"
         >
-          <IconBolt v-if="notice.kind === 'power'" />
-          <IconVolumeOff v-else-if="notice.kind === 'volume' && notice.data?.muted" />
-          <IconVolume2 v-else-if="notice.kind === 'volume'" />
-          <IconBatteryExclamation v-else-if="notice.kind === 'battery'" />
-          <IconBell v-else />
+          <NoticeIcon :kind="notice.kind" :muted="notice.data?.muted === true" />
         </span>
-        <span class="collapsed-time notice-label">{{ notice.label }}</span>
+        <span class="text-[12px] font-semibold whitespace-nowrap text-white/92 tabular-nums">{{ notice.label }}</span>
+      </template>
+      <template v-else-if="mode === 'home'">
+        <span class="text-[12px] font-[650] tabular-nums text-white/90">{{ homeTime }}</span>
       </template>
       <template v-else-if="mode === 'idle'">
-        <span class="album-art idle-art"><IconDots /></span>
+        <span :class="[ALBUM, 'size-[30px] rounded-lg bg-[linear-gradient(145deg,#3b4b45,#18221f)] text-[13px] text-[#b7f36b] [&>svg]:size-[17px]']"><IconDots /></span>
         <span class="waveform idle-wave"><i></i><i></i><i></i></span>
       </template>
       <template v-else-if="mode === 'ring'">
-        <span class="ring-pulse"><IconPhone /></span>
-        <span class="collapsed-message">Alex</span>
+        <span :class="RING_PULSE"><IconPhone /></span>
+        <span class="text-[10px] font-semibold">Alex</span>
       </template>
       <template v-else-if="mode === 'record'">
-        <span class="record-dot"></span>
-        <span class="collapsed-time">{{ formatTime(recordingSeconds) }}</span>
+        <span class="size-[9px] animate-[record-pulse_1.3s_ease-in-out_infinite] rounded-full bg-[#ff5b67] shadow-[0_0_10px_rgba(255,91,103,.65)]"></span>
+        <span class="text-[12px] font-[650] tabular-nums text-[#f4cb82]">{{ formatTime(recordingSeconds) }}</span>
       </template>
       <template v-else-if="mode === 'music'">
-        <span class="album-art mini-album">
-          <img v-if="trackArtwork" :src="trackArtwork" alt="" />
+        <span :class="[ALBUM, ALBUM_ART_BG, 'size-5 rounded-[7px] text-[9px]']">
+          <img v-if="trackArtwork" :src="trackArtwork" alt="" :class="ALBUM_IMG" />
           <template v-else>{{ trackInitial }}</template>
         </span>
         <span class="waveform"><i></i><i></i><i></i><i></i><i></i></span>
       </template>
       <template v-else-if="mode === 'timer'">
-        <IconClock class="collapsed-icon timer-icon" />
-        <span class="collapsed-time">{{ timerLabel }}</span>
+        <IconClock class="size-[15px] text-[#f4cb82]" />
+        <span class="text-[12px] font-[650] tabular-nums text-[#f4cb82]">{{ timerLabel }}</span>
       </template>
       <template v-else-if="mode === 'call'">
-        <span class="call-live-dot"></span>
-        <span class="collapsed-time">{{ callLabel }}</span>
+        <span class="size-2 rounded-full bg-green shadow-[0_0_8px_rgba(183,243,107,.7)]"></span>
+        <span class="text-[12px] font-[650] tabular-nums text-[#f4cb82]">{{ callLabel }}</span>
       </template>
       <template v-else-if="mode === 'airdrop'">
-        <IconArrowDownToArc class="collapsed-icon" />
-        <span class="collapsed-time">68%</span>
+        <IconArrowDownToArc class="size-[15px] text-white" />
+        <span class="text-[12px] font-[650] tabular-nums text-[#f4cb82]">68%</span>
       </template>
       <template v-else>
-        <IconBell class="collapsed-icon" />
-        <span class="collapsed-message">1 nuevo</span>
+        <IconBell class="size-[15px] text-white" />
+        <span class="text-[10px] font-semibold">1 nuevo</span>
       </template>
     </div>
   
-    <!-- El aviso no cierra el panel: entra como franja sobre él y se retira
-         sola, dejando intacto lo que el usuario estuviera haciendo.
-         Va fuera de `.island-content` a propósito: ahí dentro `v-auto-animate`
-         gestionaría su entrada y pelearía con la animación propia. -->
-    <div
-      v-if="expanded && notice"
-      class="notice-strip"
-      :class="`notice-${notice.kind}`"
-      aria-hidden="true"
-    >
-      <span
-        class="notice-strip-icon"
-        :class="{ 'is-charging': notice.data?.plugged }"
-        :style="{ '--pct': Number(notice.data?.percent ?? 0) }"
-      >
-        <IconBolt v-if="notice.kind === 'power'" />
-          <IconVolumeOff v-else-if="notice.kind === 'volume' && notice.data?.muted" />
-          <IconVolume2 v-else-if="notice.kind === 'volume'" />
-          <IconBatteryExclamation v-else-if="notice.kind === 'battery'" />
-        <IconBell v-else />
-      </span>
-      <span class="notice-strip-label">{{ notice.label }}</span>
-    </div>
-
-    <div v-if="!showsPill" v-auto-animate class="island-content">
-      <template v-if="mode === 'idle'">
-        <div class="activity-top">
-          <span class="idle-avatar"><IconDots /></span>
-          <span class="media-copy"><strong>Todo tranquilo</strong><small>La isla está lista para ti</small></span>
-          <span class="idle-status">EN ESPERA</span>
+    <div v-if="!showsPill && !showsPanel" v-auto-animate class="island-content">
+      <template v-if="mode === 'home'">
+        <div class="flex h-full flex-col items-center justify-center gap-1.5">
+          <strong class="text-[40px] leading-none font-semibold tracking-[-.02em] tabular-nums">{{ homeTime }}</strong>
+          <span class="truncate text-[11px] text-[#a2a2a8] first-letter:uppercase">{{ homeDate }}</span>
         </div>
-        <div class="idle-footer"><span>Sin actividades activas</span><span class="idle-indicator"></span></div>
+      </template>
+
+      <template v-else-if="mode === 'idle'">
+        <div :class="TOP">
+          <span :class="[AVATAR, 'border-[rgba(183,243,107,.15)] bg-[linear-gradient(145deg,#2c3b35,#171d1b)] text-[#b7f36b]']"><IconDots /></span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Todo tranquilo</strong><small :class="COPY_SMALL">La isla está lista para ti</small></span>
+          <span class="text-[7px] font-bold tracking-[.08em] text-[#92929c]">EN ESPERA</span>
+        </div>
+        <div class="flex items-center justify-between text-[9px] text-[#8d8d98]"><span>Sin actividades activas</span><span class="size-1.5 rounded-full bg-[#777782]"></span></div>
       </template>
   
       <template v-else-if="mode === 'ring'">
-        <div class="activity-top">
-          <span class="contact-avatar ring-avatar">A</span>
-          <span class="media-copy"><strong>Alex Morgan</strong><small class="incoming-label">Llamada entrante · móvil</small></span>
-          <span class="ring-pulse"><IconPhone /></span>
+        <div :class="TOP">
+          <span :class="[AVATAR, CONTACT_AVATAR]">A</span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Alex Morgan</strong><small class="truncate text-[8px] text-[#9de6b5]">Llamada entrante · móvil</small></span>
+          <span :class="RING_PULSE"><IconPhone /></span>
         </div>
-        <div class="incoming-controls">
-          <button class="incoming-action decline-call" aria-label="Rechazar llamada" @click="chooseActivity('idle')"><IconPhone /></button>
+        <div class="flex items-center justify-center gap-[19px] text-[9px] text-[#9999a8]">
+          <button class="grid size-8 place-items-center rounded-full bg-[#f04e58] text-white rotate-[135deg] [&>svg]:size-4" aria-label="Rechazar llamada" @click="chooseActivity('idle')"><IconPhone /></button>
           <span>Desliza para responder</span>
-          <button class="incoming-action accept-call" aria-label="Responder llamada" @click="chooseActivity('call')"><IconPhone /></button>
+          <button class="grid size-8 place-items-center rounded-full bg-[#42bb70] text-white rotate-[225deg] [&>svg]:size-4" aria-label="Responder llamada" @click="chooseActivity('call')"><IconPhone /></button>
         </div>
       </template>
   
       <template v-else-if="mode === 'record'">
-        <div class="activity-top">
-          <span class="recording-avatar"><IconMicrophone /></span>
-          <span class="media-copy"><strong>Grabación de audio</strong><small>{{ recording ? "Grabando ahora" : "Grabación en pausa" }}</small></span>
-          <span class="recording-clock">{{ formatTime(recordingSeconds) }}</span>
+        <div :class="TOP">
+          <span :class="[AVATAR, 'border-[rgba(255,91,103,.18)] bg-[rgba(255,91,103,.1)] text-[#ff727b]']"><IconMicrophone /></span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Grabación de audio</strong><small :class="COPY_SMALL">{{ recording ? "Grabando ahora" : "Grabación en pausa" }}</small></span>
+          <span class="text-[11px] tabular-nums text-[#ff7881]">{{ formatTime(recordingSeconds) }}</span>
         </div>
-        <div class="recording-controls">
+        <div class="flex items-center gap-[15px]">
           <div class="recording-wave" :class="{ paused: !recording }"><i v-for="bar in 25" :key="bar" :style="{ '--bar': `${20 + ((bar * 31) % 70)}%` }"></i></div>
-          <button class="media-control play-control" :aria-label="recording ? 'Pausar grabación' : 'Reanudar grabación'" @click="emit('toggle-recording')">
+          <button :class="[MC, MC_HOVER, PLAY]" :aria-label="recording ? 'Pausar grabación' : 'Reanudar grabación'" @click="emit('toggle-recording')">
             <IconPlayerPause v-if="recording" />
             <IconPlayerPlay v-else />
           </button>
@@ -398,26 +490,26 @@ function onSeekKeydown(event: KeyboardEvent) {
       </template>
   
       <template v-else-if="mode === 'airdrop'">
-        <div class="activity-top">
-          <span class="transfer-avatar"><IconArrowDownToArc /></span>
-          <span class="media-copy"><strong>Recibiendo archivo</strong><small>MacBook Pro · ahora mismo</small></span>
-          <button class="dismiss-button" aria-label="Cerrar transferencia" @click="chooseActivity('idle')"><IconX /></button>
+        <div :class="TOP">
+          <span :class="[AVATAR, 'border-[rgba(141,216,255,.18)] bg-[rgba(91,165,204,.12)] text-[#8dd8ff]']"><IconArrowDownToArc /></span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Recibiendo archivo</strong><small :class="COPY_SMALL">MacBook Pro · ahora mismo</small></span>
+          <button :class="DISMISS" aria-label="Cerrar transferencia" @click="chooseActivity('idle')"><IconX /></button>
         </div>
-        <div class="transfer-info"><span>Presentación-final.pdf</span><strong>68%</strong></div>
-        <div class="transfer-progress"><span></span></div>
+        <div class="flex justify-between text-[9px] text-[#d6d6de]"><span>Presentación-final.pdf</span><strong class="text-[9px] text-[#8dd8ff]">68%</strong></div>
+        <div class="h-1 overflow-hidden rounded-[4px] bg-white/14"><span class="block h-full w-[68%] rounded-[inherit] bg-[linear-gradient(90deg,#7cc9f2,#b6e5ff)]"></span></div>
       </template>
   
       <template v-else-if="mode === 'music'">
-        <div class="music-shell">
-        <div class="music-layout">
-          <div class="music-heading">
-            <span class="album-art album-art-large">
-              <img v-if="trackArtwork" :src="trackArtwork" alt="" />
+        <div class="flex h-full min-w-0 items-stretch gap-3">
+        <div class="flex h-full w-[300px] min-w-0 flex-none flex-col justify-between gap-1.5">
+          <div class="flex items-center gap-[9px]">
+            <span :class="[ALBUM, ALBUM_ART_BG, 'size-[38px] rounded-[9px] text-[15px]']">
+              <img v-if="trackArtwork" :src="trackArtwork" alt="" :class="ALBUM_IMG" />
               <template v-else>{{ trackInitial }}</template>
             </span>
-            <span class="media-copy">
-              <strong>{{ trackTitle }}</strong>
-              <small>{{ trackSubtitle }}</small>
+            <span :class="COPY">
+              <strong :class="COPY_STRONG">{{ trackTitle }}</strong>
+              <small :class="COPY_SMALL">{{ trackSubtitle }}</small>
             </span>
             <!-- Cinco barras: el patrón de alturas (5-10-15-10-5) es simétrico
                  y el CSS las estiliza por posición, así que el número importa. -->
@@ -427,20 +519,19 @@ function onSeekKeydown(event: KeyboardEvent) {
 
             <!-- Karaoke y volumen viven arriba: la fila de controles ya está
                  ocupada por reproducción, saltos y cambio de pista. -->
-            <div class="heading-actions">
+            <div class="flex flex-none items-center gap-1">
               <button
                 v-if="lyricsAvailable"
-                class="icon-action"
-                :class="{ 'is-on': lyricsOpen }"
+                :class="[ICON_ACTION, lyricsOpen ? 'text-green hover:bg-white/10' : 'text-[#9a9aa4] hover:bg-white/10 hover:text-[#f0f0f4]']"
                 :aria-label="lyricsOpen ? 'Ocultar letra' : 'Mostrar letra'"
                 :aria-pressed="lyricsOpen"
                 @click.stop="emit('toggle-lyrics')"
               >
                 <IconMicrophone2 />
               </button>
-              <div class="volume" role="presentation" @click.stop>
+              <div class="group/vol flex items-center gap-[5px]" role="presentation" @click.stop>
                 <button
-                  class="icon-action"
+                  :class="[ICON_ACTION, 'text-[#9a9aa4] hover:bg-white/10 hover:text-[#f0f0f4]']"
                   :aria-label="muted ? 'Activar sonido' : 'Silenciar'"
                   @click="emit('toggle-mute')"
                 >
@@ -448,7 +539,7 @@ function onSeekKeydown(event: KeyboardEvent) {
                   <IconVolume2 v-else />
                 </button>
                 <input
-                  class="volume-slider"
+                  class="w-0 cursor-pointer accent-[#f4f4f6] opacity-0 [transition:width_.22s_cubic-bezier(.16,1,.3,1),opacity_.18s] group-hover/vol:w-[52px] group-hover/vol:opacity-100 focus-visible:w-[52px] focus-visible:opacity-100"
                   type="range"
                   min="0"
                   max="100"
@@ -461,11 +552,11 @@ function onSeekKeydown(event: KeyboardEvent) {
             </div>
           </div>
 
-          <div class="track-line">
-            <span class="track-time">{{ positionLabel }}</span>
+          <div class="flex items-center gap-2">
+            <span class="flex-none text-[8.5px] tabular-nums text-[#9999a0]">{{ positionLabel }}</span>
             <div
-              class="track-seek"
-              :class="{ 'is-static': !canSeek }"
+              class="group/seek min-w-0 flex-1 touch-none py-[5px] outline-none"
+              :class="canSeek ? 'cursor-pointer' : 'cursor-default'"
               role="slider"
               tabindex="0"
               aria-label="Posición de la pista"
@@ -475,19 +566,27 @@ function onSeekKeydown(event: KeyboardEvent) {
               @pointerdown="canSeek && startScrub($event)"
               @keydown="onSeekKeydown"
             >
-              <div class="track-progress">
-                <span :style="{ width: `${trackProgress}%` }"></span>
-                <i class="track-knob" :style="{ left: `${trackProgress}%` }"></i>
+              <!-- `track-progress` no tiene estilos: es el asa con que `startScrub` localiza la barra. -->
+              <div
+                class="track-progress relative h-[3px] rounded-[4px] bg-white/17 transition-[height] duration-150"
+                :class="canSeek && 'group-hover/seek:h-[5px] group-focus-visible/seek:h-[5px]'"
+              >
+                <span class="block h-full rounded-[inherit] bg-[#f4f4f6]" :style="{ width: `${trackProgress}%` }"></span>
+                <i
+                  class="pointer-events-none absolute top-1/2 -ml-[4.5px] size-[9px] -translate-y-1/2 scale-60 rounded-full bg-white opacity-0 transition-[opacity,scale] duration-150 group-hover/seek:scale-100 group-hover/seek:opacity-100 group-focus-visible/seek:scale-100 group-focus-visible/seek:opacity-100"
+                  :class="!canSeek && 'hidden'"
+                  :style="{ left: `${trackProgress}%` }"
+                ></i>
               </div>
             </div>
-            <span class="track-time">{{ remainingLabel }}</span>
+            <span class="flex-none text-[8.5px] tabular-nums text-[#9999a0]">{{ remainingLabel }}</span>
           </div>
 
-            <div class="control-row">
-              <div class="control-buttons">
-                <button class="media-control" aria-label="Pista anterior" @click="emit('previous')"><IconPlayerTrackPrev /></button>
+            <div class="flex items-center justify-center">
+              <div class="flex items-center justify-center gap-[9px]">
+                <button :class="[MC, MC_HOVER, CONTROL]" aria-label="Pista anterior" @click="emit('previous')"><IconPlayerTrackPrev /></button>
                 <button
-                  class="media-control skip-control"
+                  :class="[MC, SKIP, canSeek ? 'hover:scale-[1.12] hover:text-white' : 'cursor-default opacity-30']"
                   :disabled="!canSeek"
                   :title="canSeek ? `Retroceder ${skipSeconds} segundos` : 'Este reproductor no permite avanzar la pista'"
 
@@ -496,12 +595,12 @@ function onSeekKeydown(event: KeyboardEvent) {
                 >
                   <component :is="skipIcons[0]" />
                 </button>
-                <button class="media-control play-control" :aria-label="playing ? 'Pausar' : 'Reproducir'" @click="emit('toggle-play')">
+                <button :class="[MC, MC_HOVER, PLAY]" :aria-label="playing ? 'Pausar' : 'Reproducir'" @click="emit('toggle-play')">
                   <IconPlayerPause v-if="playing" />
                   <IconPlayerPlay v-else />
                 </button>
                 <button
-                  class="media-control skip-control"
+                  :class="[MC, SKIP, canSeek ? 'hover:scale-[1.12] hover:text-white' : 'cursor-default opacity-30']"
                   :disabled="!canSeek"
                   :title="canSeek ? `Avanzar ${skipSeconds} segundos` : 'Este reproductor no permite avanzar la pista'"
                   :aria-label="`Avanzar ${skipSeconds} segundos`"
@@ -509,7 +608,7 @@ function onSeekKeydown(event: KeyboardEvent) {
                 >
                   <component :is="skipIcons[1]" />
                 </button>
-                <button class="media-control" aria-label="Pista siguiente" @click="emit('next')"><IconPlayerTrackNext /></button>
+                <button :class="[MC, MC_HOVER, CONTROL]" aria-label="Pista siguiente" @click="emit('next')"><IconPlayerTrackNext /></button>
               </div>
             </div>
         </div>
@@ -546,11 +645,11 @@ function onSeekKeydown(event: KeyboardEvent) {
       </template>
   
       <template v-else-if="mode === 'timer'">
-        <div class="activity-top">
-          <span class="timer-ring"><IconClock /></span>
-          <span class="media-copy"><strong>Temporizador</strong><small>{{ timerRunning ? "Cuenta atrás en curso" : "En pausa" }}</small></span>
+        <div :class="TOP">
+          <span class="grid size-[43px] flex-none place-items-center rounded-full border-2 border-[rgba(244,203,130,.75)] text-[#f4cb82] [&>svg]:size-[19px]"><IconClock /></span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Temporizador</strong><small :class="COPY_SMALL">{{ timerRunning ? "Cuenta atrás en curso" : "En pausa" }}</small></span>
           <button
-            class="media-control play-control"
+            :class="[MC, MC_HOVER, PLAY]"
             :aria-label="timerRunning ? 'Pausar temporizador' : 'Reanudar temporizador'"
             @click="emit('toggle-timer')"
           >
@@ -558,37 +657,37 @@ function onSeekKeydown(event: KeyboardEvent) {
             <IconPlayerPlay v-else />
           </button>
         </div>
-        <div class="timer-summary"><span>COCINA</span><strong>{{ timerLabel }}</strong></div>
+        <div class="flex items-center justify-between text-[9px] tracking-[.08em] text-[#9999a0]"><span>COCINA</span><strong class="text-[11px] tracking-normal text-green tabular-nums">{{ timerLabel }}</strong></div>
       </template>
   
       <template v-else-if="mode === 'call'">
-        <div class="activity-top">
-          <span class="contact-avatar">A</span>
-          <span class="media-copy"><strong>Alex Morgan</strong><small :class="{ 'call-ended': !callActive }">{{ callActive ? `En llamada · ${callLabel}` : "Llamada finalizada" }}</small></span>
-          <span class="call-status"><i></i> {{ callActive ? "ACTIVA" : "FINALIZADA" }}</span>
+        <div :class="TOP">
+          <span :class="[AVATAR, CONTACT_AVATAR]">A</span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Alex Morgan</strong><small :class="COPY_SMALL">{{ callActive ? `En llamada · ${callLabel}` : "Llamada finalizada" }}</small></span>
+          <span class="flex items-center gap-[5px] text-[7px] font-bold tracking-[.07em] whitespace-nowrap text-green"><i class="size-[5px] rounded-full bg-green"></i> {{ callActive ? "ACTIVA" : "FINALIZADA" }}</span>
         </div>
-        <div v-if="callActive" class="call-controls">
-          <button class="media-control" :aria-label="muted ? 'Activar micrófono' : 'Silenciar llamada'" @click="emit('toggle-mute')">
+        <div v-if="callActive" class="flex justify-center gap-6">
+          <button :class="[MC, MC_HOVER, CALL_CONTROL]" :aria-label="muted ? 'Activar micrófono' : 'Silenciar llamada'" @click="emit('toggle-mute')">
             <IconMicrophone v-if="!muted" />
             <IconX v-else />
           </button>
-          <button class="media-control end-call" aria-label="Finalizar llamada" @click="emit('end-call')"><IconPhone /></button>
-          <button class="media-control" aria-label="Activar altavoz"><IconVolume2 /></button>
+          <button :class="[MC, 'size-[33px] rotate-[135deg] bg-[#fa453d] text-white hover:bg-[#dc342e] [&>svg]:size-[17px]']" aria-label="Finalizar llamada" @click="emit('end-call')"><IconPhone /></button>
+          <button :class="[MC, MC_HOVER, CALL_CONTROL]" aria-label="Activar altavoz"><IconVolume2 /></button>
         </div>
-        <div v-else class="call-ended-note">
+        <div v-else class="grid justify-items-center gap-[7px] self-center text-center text-[9px] text-[#9999a8]">
           Llamada finalizada
-          <button @click="callActive = true">Volver a llamar</button>
+          <button class="rounded-[7px] border border-[rgba(183,243,107,.2)] bg-[rgba(183,243,107,.06)] px-[9px] py-[5px] text-[9px] text-green" @click="callActive = true">Volver a llamar</button>
         </div>
       </template>
   
       <template v-else>
-        <div class="activity-top">
-          <span class="message-avatar"><IconMessage /></span>
-          <span class="media-copy"><strong>Alex · Mensajes</strong><small>ahora mismo</small></span>
-          <button class="dismiss-button" aria-label="Cerrar notificación" @click="chooseActivity('music')"><IconX /></button>
+        <div :class="TOP">
+          <span :class="[AVATAR, 'border-white/15 bg-[linear-gradient(145deg,#ffa784,#ee5970)] text-[16px] font-semibold text-white']"><IconMessage /></span>
+          <span :class="COPY"><strong :class="COPY_STRONG">Alex · Mensajes</strong><small :class="COPY_SMALL">ahora mismo</small></span>
+          <button :class="DISMISS" aria-label="Cerrar notificación" @click="chooseActivity('music')"><IconX /></button>
         </div>
-        <p class="message-body">¡Ya llegué! Te espero en la entrada 😊</p>
-        <button class="reply-button" @click="chooseActivity('music')">Marcar como leído <span>↗</span></button>
+        <p class="mt-1 ml-[53px] text-[10px] leading-[1.5] text-[#dddde2]">¡Ya llegué! Te espero en la entrada 😊</p>
+        <button class="self-end p-0 text-[9px] text-green" @click="chooseActivity('music')">Marcar como leído <span class="ml-[5px]">↗</span></button>
       </template>
     </div>
   </div>

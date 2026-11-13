@@ -2,14 +2,18 @@
 
 Una isla dinámica para el escritorio de Windows, construida con Vue 3 y Tauri 2.
 Cuelga del borde superior de la pantalla, por encima del resto de ventanas, y
-muestra lo que suena en el sistema, letras sincronizadas, avisos del equipo y
-notificaciones de otras aplicaciones. El repositorio incluye también una demo
-web que simula un escritorio Windows con todas las actividades.
+muestra lo que suena en el sistema, letras sincronizadas, avisos del equipo
+(cargador, volumen, batería, Wi-Fi e internet) y notificaciones de otras
+aplicaciones, con la foto de quien te escribe en WhatsApp. Sin nada sonando,
+enseña la hora y la fecha. El repositorio incluye también una demo web que
+simula un escritorio Windows con las actividades.
 
 > **Estado del proyecto:** la aplicación de escritorio funciona como isla
 > flotante real: ventana transparente y sin bordes, anclada al borde superior y
 > por encima del resto de ventanas, con la música del sistema vía
-> [SMTC](#música-del-sistema-smtc), control de volumen, icono en la bandeja y
+> [SMTC](#música-del-sistema-smtc), control de volumen, [avisos del
+> sistema](#avisos-del-sistema), [notificaciones de otras
+> aplicaciones](#notificaciones-de-otras-aplicaciones), icono en la bandeja y
 > [panel de ajustes](#panel-de-ajustes). La demo web del navegador se mantiene
 > como vista previa interactiva.
 
@@ -29,6 +33,23 @@ Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
 
+### Novedades de la 0.3.0
+
+- **Avisos desplegados:** cargador, volumen, batería baja, Wi-Fi e internet abren la
+  isla al tamaño del panel, con icono grande, título y subtítulo, también con la
+  isla abierta. Ver [Avisos del sistema](#avisos-del-sistema).
+- **Aviso de Wi-Fi y de internet** nuevos, con su animación y su interruptor.
+- **Vista de inicio:** sin medios, la isla enseña la hora y la fecha en lugar de un
+  reproductor vacío. Ver [Vista de inicio](#vista-de-inicio).
+- **Notificaciones:** foto del remitente de WhatsApp, mensajes largos que se
+  desplazan y un clic que abre la app. Ver [Notificaciones de otras
+  aplicaciones](#notificaciones-de-otras-aplicaciones).
+- **Animaciones en todos los equipos:** la isla ya no se queda sin animar cuando
+  Windows tiene desactivados los efectos de animación.
+- **Interfaz:** el panel de ajustes, la demo web y la isla migran a Tailwind CSS.
+  El aspecto no cambia.
+- El aviso del volumen ya no repite su animación con cada pulsación.
+
 ## Contenido
 
 - [Descarga](#descarga)
@@ -42,6 +63,10 @@ instalador en `src-tauri/target/release/bundle/nsis/`.
 - [Componentes y estilo](#componentes-y-estilo)
 - [Aplicación de escritorio con Tauri](#aplicación-de-escritorio-con-tauri)
 - [Música del sistema (SMTC)](#música-del-sistema-smtc)
+- [Isla flotante y panel de ajustes](#isla-flotante-y-panel-de-ajustes)
+- [Avisos del sistema](#avisos-del-sistema)
+- [Vista de inicio](#vista-de-inicio)
+- [Notificaciones de otras aplicaciones](#notificaciones-de-otras-aplicaciones)
 - [Limitaciones actuales](#limitaciones-actuales)
 - [Referencia y atribución](#referencia-y-atribución)
 
@@ -64,6 +89,10 @@ Windows:
 
 Consulta la [guía oficial de prerrequisitos de Tauri para Windows][tauri-prereq]
 para instrucciones de instalación actualizadas.
+
+`rusqlite` compila SQLite desde su código C (feature `bundled`) con esa misma
+toolchain de MSVC: la primera compilación tarda algo más, pero la app no depende
+de ninguna DLL de SQLite del sistema.
 
 > **Control de aplicaciones inteligente.** Si Windows tiene activo el Control de
 > aplicaciones inteligente (Smart App Control), `cargo build` falla con
@@ -119,8 +148,10 @@ npm run tauri:build
 - **Vue 3** con Composition API y `<script setup lang="ts">`.
 - **TypeScript** y `vue-tsc` para validación de tipos.
 - **Vite 7** como servidor de desarrollo y herramienta de compilación.
-- **Tailwind CSS 4** mediante `@tailwindcss/vite`, junto con CSS propio para el
-  aspecto detallado de la maqueta.
+- **Tailwind CSS 4** mediante `@tailwindcss/vite`. El diseño va con utilidades en
+  las plantillas; el CSS a mano queda solo para lo que Tailwind no expresa bien
+  (animaciones, `@property`, pseudoelementos y las muescas de la isla). Ver
+  [Componentes y estilo](#componentes-y-estilo).
 - **Reka UI**, las primitivas accesibles utilizadas por los componentes de
   interfaz locales compatibles con shadcn-vue.
 - **shadcn-vue** como convención de componentes: los componentes se mantienen
@@ -128,7 +159,10 @@ npm run tauri:build
 - **@tabler/icons-vue** para la iconografía.
 - **@formkit/auto-animate** para animar la inserción, eliminación y reordenación
   de elementos internos.
-- **Tauri 2 + Rust** como base prevista para el contenedor de escritorio.
+- **Tauri 2 + Rust** como contenedor de escritorio. Crates principales:
+  `windows` (SMTC, Core Audio, WLAN, notificaciones, ventana recortada), `ureq`
+  (letras y foto del remitente, con límites de tiempo) y `rusqlite` (lectura de
+  solo lectura de la base de notificaciones de Windows, con SQLite incluido).
 
 El proyecto sustituye Rollup por su distribución oficial WebAssembly,
 `@rollup/wasm-node`, para que la compilación pueda ejecutarse en entornos Windows
@@ -156,19 +190,24 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
 │   ├── App.vue                        # Demo: escritorio simulado y actividades
 │   ├── IslandApp.vue                  # La isla real: tamaño, avisos y letras
 │   ├── SettingsApp.vue                # Panel de ajustes
-│   ├── style.css                      # Tailwind y estilos de la isla
+│   ├── style.css                      # Tema de Tailwind y CSS de la isla (animaciones, muescas)
+│   ├── settings.css                   # Tema de Tailwind del panel de ajustes (ventana aparte)
 │   ├── lib/
 │   │   ├── utils.ts                   # Utilidad cn() para clases
-│   │   ├── activities.ts              # Actividades de la demo
+│   │   ├── activities.ts              # Actividades de la isla (incluye la vista de inicio)
 │   │   ├── media.ts                   # Puente con la música del sistema (SMTC)
 │   │   ├── lyrics.ts                  # Letras sincronizadas y línea activa
 │   │   ├── clock.ts                   # Reloj local suave para la letra
 │   │   ├── notifications.ts           # Cola de avisos de la isla
 │   │   ├── power.ts                   # Estado del cargador
-│   │   └── systemEvents.ts            # Volumen, batería baja y notificaciones de apps
+│   │   └── systemEvents.ts            # Volumen, batería, Wi-Fi, internet y notificaciones de apps
 │   └── components/
 │       ├── TheIsland.vue              # La píldora, compartida por demo e isla real
+│       ├── NoticeIcon.vue             # Icono de cada tipo de aviso
+│       ├── WifiGlyph.vue              # Icono de Wi-Fi con arcos que se encienden
+│       ├── ToastMarquee.vue           # Mensaje largo que se desplaza en su línea
 │       ├── SettingsSelect.vue         # Desplegable propio del panel de ajustes
+│       ├── SettingsToggle.vue         # Fila con interruptor del panel de ajustes
 │       └── ui/
 │           ├── button/                # Botón local con variantes
 │           ├── popover/               # Exportaciones de primitivas Reka UI
@@ -184,8 +223,10 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
         ├── smtc.rs                    # Lectura y control de SMTC en Windows
         ├── volume.rs                  # Volumen maestro (Core Audio)
         ├── power.rs                   # Batería y corriente
+        ├── network.rs                 # Wi-Fi (API WLAN) y salida a internet (Network List Manager)
         ├── lyrics.rs                  # Letras desde LRCLIB
-        ├── toasts.rs                  # Notificaciones de otras aplicaciones
+        ├── toasts.rs                  # Notificaciones de otras aplicaciones y apertura de su app
+        ├── avatars.rs                 # Foto del remitente (WhatsApp), desde la base de Windows
         ├── settings.rs                # Ajustes y persistencia
         └── main.rs                    # Entrada de la aplicación Windows
 ```
@@ -209,6 +250,7 @@ controles del sistema operativo.
 
 | Estado | Vista compacta | Vista expandida e interacción |
 | --- | --- | --- |
+| **Inicio** | La hora | Hora y fecha. **No se elige:** la isla la muestra sola cuando no hay ningún medio. Ver [Vista de inicio](#vista-de-inicio). |
 | **Inactiva** | Indicador tenue | Muestra que no hay actividades activas. |
 | **Llamada entrante** | Indicador de llamada y nombre | Simula una llamada de Alex. Se puede rechazar o responder; responder cambia al estado de llamada. |
 | **Temporizador** | Cuenta atrás | Temporizador de cocina que se puede pausar y reanudar. |
@@ -226,46 +268,58 @@ dispositivos ni APIs multimedia del sistema.
 
 ### Apertura y cierre de la isla flotante
 
-La píldora cambia de tamaño con una curva `linear()` que aproxima un muelle
-(rigidez ~210, amortiguación ~26), en lugar de un easing plano: entra rápido y
-se asienta sin rebote brusco.
+La píldora cambia de tamaño en 0,58 s con la curva `cubic-bezier(.22, 1, .36, 1)`:
+entra rápido y frena hasta pararse, **sin rebote**. Un muelle que sobrepasaba el
+tamaño final se percibía, a este tamaño, como un temblor al final de cada
+transición.
 
-Coordinar eso con la ventana nativa tiene truco, porque la ventana cambia de
-tamaño de golpe mientras el CSS anima durante medio segundo:
+Coordinar eso con la ventana nativa tiene truco. La ventana **no cambia de
+tamaño**: mide siempre lo que cabe la isla más grande (540 px con la letra) y
+Rust la recorta con `SetWindowRgn` a la forma exacta de la isla, píldora
+redondeada más las dos muescas cóncavas de las esquinas. Redimensionarla
+obligaba a WebView2 a actualizar su viewport unos fotogramas después y se veía
+el fotograma viejo.
 
-- **Al expandir**, la ventana crece *antes* de que empiece la animación, para
-  que la isla tenga sitio donde expandirse sin recortarse.
-- **Al contraer**, la ventana espera a que la animación termine; encogerla
-  antes cortaría el contenido a media transición.
-- **La isla va anclada al borde superior de la ventana**, no centrada. Como la
-  ventana se encoge con retraso, centrarla haría que la isla apareciera más
-  abajo durante ese tiempo.
+- **El recorte sigue a la píldora.** Rust lo interpola en un hilo con la misma
+  curva y duración que el CSS (`animate_island`) y se le avisa a la vez que
+  arranca la animación, al crecer y al encoger. Si fuera por delante asomaría
+  una franja pálida, porque Windows pinta de pálido cualquier píxel transparente
+  dentro de la región.
+- **Las medidas de muesca y radio replican las del CSS.** Si cambias una, cambia
+  su pareja.
 - El contenido entra solo con opacidad, sin desplazamiento: cualquier
   `translateY` se percibe como un salto sobre una píldora que ya se está
   redimensionando.
 
-El panel de karaoke usa el mismo mecanismo: al abrirlo la ventana se ensancha
-antes de que la píldora crezca, y al cerrarlo espera a que la animación
-termine. Los controles conservan su ancho mientras la isla se alarga a su
-alrededor, de modo que no se reacomodan en cada fotograma.
+El panel de karaoke usa el mismo mecanismo: la isla se ensancha hasta 540 px y
+los controles conservan su ancho mientras tanto, de modo que no se reacomodan
+en cada fotograma.
+
+**La isla no respeta `prefers-reduced-motion`, a propósito.** WebView2 lo activa
+cuando Windows tiene desactivados los «Efectos de animación» (ahorro de energía,
+máquinas virtuales, escritorio remoto), y la isla se quedaba sin animar en esos
+equipos. Además el recorte nativo se anima siempre, y el CSS debe ir a la par.
+El panel de ajustes sí lo respeta.
 
 
 
 ### Expansión y contracción
 
-El tamaño y las esquinas de la isla cambian mediante clases de Tailwind en
-`src/App.vue`:
+El tamaño y las esquinas de la isla cambian con la clase `island-morph`
+(`transition-property: width, height, border-radius, box-shadow`) y las clases de
+tamaño de `TheIsland.vue`. Estos son los tamaños, que `IslandApp.vue` replica
+para la ventana nativa:
 
-```text
-transition-[width,height,border-radius]
-duration-500
-ease-[cubic-bezier(0.16,1,0.3,1)]
-```
+| Forma | Tamaño |
+| --- | --- |
+| Pestaña mínima | `48 × 8 px` |
+| Píldora compacta | `116 × 34 px` (más ancha si el aviso lo pide) |
+| Notificación de otra app | `340 × 60 px` |
+| Panel expandido y avisos desplegados | `330 × 108 px` |
+| Panel con letra | `540 × 108 px` |
 
-El estado expandido tiene un tamaño máximo de `356 × 150 px`; el compacto mide
-`126 × 40 px`. La clase de ancho expandido limita el ancho disponible en
-escritorios pequeños. El CSS de la isla mantiene el centrado horizontal y oculta
-el contenido que queda fuera de sus bordes durante la transición.
+La forma que recorta Rust se elige por la altura (≤ 12 px pestaña, ≤ 40 píldora,
+más es panel), y la pestaña usa una muesca de 5 px en lugar de la de 14.
 
 ### AutoAnimate
 
@@ -281,8 +335,8 @@ AutoAnimate actúa sobre los hijos directos del contenedor: anima su inserción,
 eliminación o movimiento. La transición de ancho/alto de la píldora es
 independiente y se controla con Tailwind.
 
-El CSS global también incluye una regla `prefers-reduced-motion` que reduce las
-animaciones CSS para quienes hayan solicitado movimiento reducido en su sistema.
+El panel de ajustes respeta `prefers-reduced-motion`; la isla no (ver
+[Apertura y cierre de la isla flotante](#apertura-y-cierre-de-la-isla-flotante)).
 
 ## Componentes y estilo
 
@@ -295,7 +349,23 @@ animaciones CSS para quienes hayan solicitado movimiento reducido en su sistema.
 - `components.json` configura el proyecto para **Vite**, **Tailwind CSS 4**,
   TypeScript, alias `@/` e iconos Tabler.
 - Google Sans se carga desde Google Fonts; la tipografía alternativa es Segoe
-  UI. Para descargarla se necesita conexión a internet.
+  UI. Para descargarla se necesita conexión a internet. El panel de ajustes usa
+  Segoe UI y no carga nada de la red.
+
+**Convención de estilos: Tailwind primero.** El CSS a mano es la excepción y
+tiene que tener un motivo.
+
+- La demo web y el panel de ajustes están enteros con utilidades. El panel tiene
+  su propia hoja, `settings.css`, porque es otra ventana y no carga `style.css`.
+- En la isla, la maquetación de las actividades y los avisos va con utilidades en
+  `TheIsland.vue`. En `style.css` quedan las animaciones (`@keyframes`,
+  `@property`), los pseudoelementos, los selectores `:has()` y las medidas que
+  Rust replica; y en el `<style>` de `IslandApp.vue`, las muescas.
+- Un elemento no debe llevar dos utilidades que fijen la misma propiedad: Tailwind
+  las emite en un orden que no es el del atributo. Y las clases tienen que
+  aparecer **literales** en el archivo, no construidas con plantillas.
+- Evita reglas globales sin capa, del estilo `button { font: inherit }`: ganan a
+  todas las utilidades y rompen tamaños de texto sin avisar.
 
 Los estados de ejemplo de la isla toman como referencia la interacción de
 [Skiper UI · Skiper 2][skiper]. El diseño y la implementación de esta demo son
@@ -305,24 +375,26 @@ propios.
 
 La configuración en `src-tauri/tauri.conf.json` define:
 
-- Una ventana llamada **Dynamic Island**, inicialmente de `1280 × 900 px`.
-- Tamaño mínimo de `360 × 560 px` y centrado inicial.
+- Una ventana `main` transparente, sin bordes, siempre visible, sin entrada en
+  la barra de tareas y oculta al arrancar; carga `island.html`. Su tamaño real lo
+  fija `place_island` en `lib.rs`, no esta configuración.
 - `npm run dev` como comando de desarrollo del frontend y
   `http://localhost:1420` como URL de desarrollo.
 - `npm run build` como comando previo a compilar el bundle.
 - `../dist` como directorio frontend para el bundle.
-- Empaquetado activo para los destinos admitidos por Tauri.
+- Empaquetado activo solo para **NSIS** (instalador por usuario, sin permisos de
+  administrador).
 
 La capability predeterminada concede `core:default` a la ventana `main`, que ya
 incluye los permisos de eventos que usa la integración multimedia. El builder
 Rust de `src-tauri/src/lib.rs` registra los comandos de
 [música del sistema](#música-del-sistema-smtc).
 
-**La ventana configurada no es aún una isla nativa de escritorio.** Actualmente
-no es transparente, flotante, siempre visible, posicionable sobre otras
-ventanas ni conectada al centro de notificaciones, audio, llamadas o
-temporizadores de Windows. Esas capacidades requieren configuración de ventana,
-permisos y código nativo adicionales.
+**Qué está conectado a Windows y qué sigue siendo simulado.** La isla real lee o
+controla la música (SMTC), el volumen maestro (Core Audio), la batería y el
+cargador, el Wi-Fi (API WLAN), la salida a internet (Network List Manager) y las
+notificaciones de otras aplicaciones. Las actividades de llamada, grabación,
+temporizador y transferencia son solo de la demo web y no tocan el sistema.
 
 ## Música del sistema (SMTC)
 
@@ -414,13 +486,20 @@ superior de la pantalla y por encima del resto de ventanas. No aparece en la
 barra de tareas, así que su punto de entrada es el **icono de la bandeja del
 sistema**, con las opciones *Ajustes…*, *Mostrar u ocultar* y *Salir*.
 
-La ventana cambia de tamaño al expandirse o contraerse la isla, de modo que
-nunca ocupa más espacio del que dibuja.
+La ventana tiene **tamaño fijo** y Rust recorta la zona visible a la forma de la
+isla, así que lo que no dibuja no se ve ni recibe clics. Ver
+[Apertura y cierre](#apertura-y-cierre-de-la-isla-flotante).
+
+Con «Siempre visible» activo, la isla **se reafirma por encima de las demás
+ventanas** cada vez que cambia de tamaño, que es cuando sale un aviso, pero solo
+si de verdad hay otra ventana «siempre visible» por delante (un reproductor
+flotante, el administrador de tareas). No roba el foco. Una aplicación a pantalla
+completa exclusiva sigue pudiendo taparla.
 
 > **Nota sobre el clic-atraviesa.** En Windows, activar `set_ignore_cursor_events`
 > sobre una ventana transparente añade `WS_EX_TRANSPARENT`, que además de dejar
 > pasar los clics impide que la ventana se dibuje. Por eso la isla no lo usa:
-> compacta mide 104 × 32 px, lo justo para la píldora, y apenas cubre pantalla.
+> compacta mide 116 × 34 px, lo justo para la píldora, y apenas cubre pantalla.
 
 ### Panel de ajustes
 
@@ -437,27 +516,110 @@ confirmación.
 | Iniciar con Windows | Registra la app en el arranque del usuario actual. |
 | Letras sincronizadas | Busca la letra en LRCLIB. Al desactivarlo, no sale ninguna consulta del equipo. |
 | Salto de los botones | Segundos que avanzan o retroceden los botones: 5, 10, 15 o 30. |
-| Avisos del sistema | Interruptor general de los avisos. Debajo, uno por tipo: cargador, volumen y batería baja (al 20 % y al 10 %). |
-| Notificaciones de aplicaciones | Muestra en la isla las notificaciones de Teams, Outlook u otras apps. **Apagado por defecto.** Ver abajo. |
+| Avisos del sistema | Interruptor general de los avisos. Debajo, uno por tipo: cargador, volumen, batería baja (al 20 % y al 10 %), **Wi-Fi** e **Internet**. Ver [Avisos del sistema](#avisos-del-sistema). |
+| Notificaciones de aplicaciones | Muestra en la isla las notificaciones de Teams, Outlook, WhatsApp u otras apps, y la lista de cuáles. **Apagado por defecto.** Con WhatsApp activado, descarga además la foto del remitente. Ver [abajo](#notificaciones-de-otras-aplicaciones). |
 
-Los ajustes se guardan en `%APPDATA%\DynamicIsland\settings.json`. El inicio
-automático se escribe en la clave `Run` del usuario, que no requiere permisos
-de administrador.
+Los ajustes se guardan en `%APPDATA%\DynamicIsland\settings.json`. Un campo nuevo
+no invalida un archivo existente: los que faltan toman su valor por defecto, y los
+que ya no existen se ignoran. El inicio automático se escribe en la clave `Run`
+del usuario, que no requiere permisos de administrador.
+
+### Avisos del sistema
+
+Cuando pasa algo en el equipo, la isla **se despliega** unos segundos con un icono
+grande, un título y un subtítulo, y luego vuelve a lo que mostraba. Cerrada, crece
+al tamaño del panel; abierta, el aviso ocupa la isla entera y, al retirarse, vuelve
+el contenido. Un toque sobre el aviso lo descarta, esté la isla abierta o cerrada.
+
+| Aviso | Cuándo | Qué enseña |
+| --- | --- | --- |
+| **Cargador** | Al enchufarlo | Batería grande que se llena hasta el porcentaje, con el contador animado. |
+| **Cargador desconectado** | Al retirarlo | «Cargador desconectado», el porcentaje y una barra. |
+| **Volumen** | Al cambiarlo desde el sistema (teclas, mezclador) | «Volumen» con su nivel y una barra, o «Silencio». Con la isla abierta se ignora: su panel ya tiene el deslizador. Mientras sigues pulsando, el panel se actualiza en el sitio en lugar de repetir la animación. |
+| **Batería baja** | Al bajar al 20 % y al 10 % sin cargador | «Batería baja» o «Batería crítica», con porcentaje y barra. Se avisa una vez por umbral. |
+| **Wi-Fi** | Al conectarse a una red o cambiar de red | «Conectado» con el nombre de la red, y los arcos del icono que se encienden uno a uno. Arrancar ya conectado no avisa. |
+| **Internet** | Al perder la salida a internet, y al recuperarla | «Sin internet» / «Internet restablecido». |
+
+Detalles que conviene saber:
+
+- **Internet** se pregunta al Administrador de redes de Windows, que distingue estar
+  conectado al router de tener salida a internet, y cubre también el cable. No
+  envía tráfico propio. La pérdida exige dos lecturas seguidas (unos 6 s) para
+  ignorar los baches al cambiar de red, y Windows tarda unos segundos en notarla,
+  así que el aviso no es instantáneo. «Restablecido» se omite si justo se acaba de
+  anunciar una red Wi-Fi.
+- **Wi-Fi** solo detecta conexiones inalámbricas (API WLAN); el cable no avisa.
+- Dos avisos del mismo tipo se **reemplazan** en lugar de encolarse: al enchufar y
+  desenchufar seguido interesa el estado final. Uno de otro tipo espera a que el
+  visible cumpla su tiempo mínimo.
+- Cada tipo tiene su interruptor, además del general, y se consultan en cada vuelta
+  de su sondeo: apagarlos surte efecto en caliente, sin reiniciar.
+- Ninguno de estos avisos sale del equipo.
+
+### Vista de inicio
+
+Sin nada sonando, la isla no enseña un reproductor vacío con «Sin reproducción» y
+una barra a cero: muestra la **hora** (en la píldora cerrada) y la **hora con la
+fecha** (abierta). Se activa sola cuando no hay ninguna sesión multimedia, o hay
+una vacía y parada. Una pista en pausa cuenta como medio y sigue mostrando el
+reproductor, por si quieres reanudarla. En cuanto algo empieza a sonar, la isla
+vuelve sola al reproductor.
 
 ### Notificaciones de otras aplicaciones
 
 La isla puede mostrar las notificaciones de Windows de otras apps: una píldora
-más alta con el remitente y la primera línea del mensaje. Se lee a través de
-`UserNotificationListener`, así que Windows debe tener permitido el acceso a
-notificaciones (Configuración → Privacidad y seguridad → Notificaciones).
+más alta (340 × 60 px) con la aplicación, el remitente y el mensaje. Se lee a
+través de `UserNotificationListener`, así que Windows debe tener permitido el
+acceso a notificaciones (Configuración → Privacidad y seguridad →
+Notificaciones).
 
 - **Apagado por defecto**, porque lee contenido privado. Se activa en ajustes.
-- **No sale nada del equipo**: el texto pasa del sistema a la ventana de la isla
-  y no se guarda en disco ni en registros. Lo único que se persiste es el
-  nombre de cada aplicación detectada.
+- **No sale nada del equipo** (salvo la foto de WhatsApp, ver abajo): el texto pasa
+  del sistema a la ventana de la isla y no se guarda en disco ni en registros. Lo
+  único que se persiste es el nombre de cada aplicación detectada.
 - **Tú eliges qué apps**: la isla las va detectando y las lista en ajustes, todas
   desactivadas. Solo se muestran las que actives. Aparecen al llegar una
   notificación o si ya hay alguna en el centro de notificaciones.
+- **Varias seguidas se apilan** en lugar de reemplazarse: dos mensajes son dos
+  mensajes.
+- **Un mensaje largo se desplaza** dentro de su línea, a ritmo de lectura (80 px/s),
+  en lugar de cortarse con «…». La isla no cambia de tamaño. El aviso se queda lo
+  que tarda en llegar al final, entre 5,5 y 20 s; esa duración se estima por
+  caracteres, así que un texto con muchas letras anchas puede retirarse algo antes.
+- **Un clic abre la aplicación.** Al hacer clic en una notificación de otra app, la
+  isla la descarta y abre (o trae al frente) esa app, como desde el menú Inicio. No
+  abre el chat ni el mensaje concreto: Windows no permite reenviar la activación de
+  un aviso desde fuera. El comando recibe solo el id del aviso, no un nombre de
+  programa, de modo que solo puede abrir la app de una notificación que ya vio.
+
+#### Foto del remitente (experimental)
+
+Con WhatsApp activado en la lista de aplicaciones, la isla enseña la foto de perfil
+de quien te escribe en lugar de la inicial de la aplicación. No hay un interruptor
+aparte: activar WhatsApp es el permiso, y el panel de ajustes avisa de ello. Por
+ahora solo funciona con WhatsApp (la versión de la Microsoft Store).
+
+Windows no entrega esa imagen a las apps: va dentro del XML de la notificación,
+que Windows guarda en su base de datos `wpndatabase.db`. La isla la abre **solo
+para lectura**, saca la dirección de la foto y la descarga de `whatsapp.net`, la
+misma dirección que Windows ya usó para enseñarla. Por eso:
+
+- **Sale una petición a la red** por cada contacto nuevo (`pps.whatsapp.net`).
+  Las fotos ya vistas se recuerdan en memoria. Si no quieres que salga, deja
+  WhatsApp desactivado en la lista.
+- Solo se descarga de los servidores de una lista fija, sin seguir
+  redirecciones, con límite de tamaño y comprobando que sea una imagen.
+- Solo se hace para las apps que tú activaste, y solo prospera con avisos que
+  traen foto de un servidor de la lista.
+- Nada se guarda: la foto vive en memoria y desaparece al cerrar la isla.
+- **No siempre aparece.** Hace falta que el contacto tenga foto visible para ti,
+  que la descarga llegue a tiempo (límite de 5 s: sin internet o con un cortafuegos
+  que bloquee `pps.whatsapp.net`, sale la inicial) y que sea WhatsApp de la
+  Microsoft Store, que es donde se verificó. La descarga ocurre antes de mostrar el
+  aviso: con una red muy lenta puede retrasarlo hasta ese límite.
+- **No es una API documentada de Windows.** Si una actualización cambia el
+  formato de esa base, la foto deja de aparecer y la isla vuelve a la inicial,
+  sin más efecto.
 
 ### Letra sincronizada (karaoke)
 
@@ -537,6 +699,19 @@ deslizador, y pulsarlo silencia o restaura el audio.
 - Las notificaciones de otras aplicaciones dependen de lo que cada app publique
   en Windows: Teams, por ejemplo, solo manda remitente y mensaje si tiene
   activada la vista previa.
+- El clic en una notificación abre la aplicación, no el chat o el mensaje
+  concreto.
+- La foto del remitente solo funciona con WhatsApp de la Microsoft Store, se apoya
+  en una base de datos interna de Windows que no está documentada y puede
+  dejar de funcionar con una actualización. No aparece si el contacto no tiene
+  foto visible o si falla la descarga.
+- El aviso de Wi-Fi solo detecta redes inalámbricas, no cable. El de internet
+  tarda unos segundos en notar la pérdida, porque depende de la detección de
+  Windows.
+- Una aplicación a pantalla completa exclusiva puede tapar la isla aunque esté
+  «siempre visible».
+- Las medidas de la isla, la altura de la ventana nativa y las muescas están
+  duplicadas entre el CSS y Rust. Cambiar un tamaño exige tocar las dos.
 
 ## Referencia y atribución
 

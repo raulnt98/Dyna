@@ -13,8 +13,25 @@ import { useSmoothPosition } from "@/lib/clock";
 import { useLyrics } from "@/lib/lyrics";
 import { noticeWidth, useNotifications } from "@/lib/notifications";
 import { useSystemPower } from "@/lib/power";
-import { tidyToast, useLowBatteryEvents, useToastEvents, useVolumeEvents } from "@/lib/systemEvents";
+import { tidyToast, useLowBatteryEvents, useToastEvents, useInternetEvents, useVolumeEvents, useWifiEvents } from "@/lib/systemEvents";
 import type { Activity } from "@/lib/activities";
+
+/**
+ * Cuánto debe quedarse en pantalla una notificación según su mensaje.
+ *
+ * Un texto más ancho que la fila se desplaza (ver ToastMarquee.vue), y el aviso
+ * tiene que durar lo que tarda en llegar al final, o se retiraría a medio leer.
+ * Se **estima** a partir de los caracteres, como `noticeWidth()`: aquí no hay
+ * texto dibujado que medir. A 11,5 px un carácter ocupa unos 5,7 px y la fila
+ * mide unos 260; el desplazamiento arranca a los 0,9 s, va a 80 px/s (SPEED en
+ * ToastMarquee.vue) y se queda un par de segundos en el final.
+ */
+function toastDuration(body: string): number {
+  const overflow = Math.max(0, body.length * 5.7 - 260);
+  if (overflow === 0) return 5500;
+  const ms = 900 + ((overflow + 22) / 80) * 1000 + 2200;
+  return Math.min(20000, Math.max(5500, Math.round(ms)));
+}
 
 /** Tamaños de la isla, en sincronía con las clases de TheIsland.vue. */
 const COMPACT = { width: 116, height: 34 };
@@ -23,6 +40,7 @@ const TAB = { width: 48, height: 8 };
 const EXPANDED = { width: 330, height: 108 };
 /** Notificación de otra aplicación: más alta que la compacta, sin llegar al panel. */
 const TOAST = { width: 340, height: 60 };
+
 /** Con la letra abierta la isla se alarga para dejarle sitio al panel. */
 const WITH_LYRICS = { width: 540, height: 108 };
 
@@ -31,6 +49,21 @@ const expanded = ref(false);
 /** Lado de la pantalla al que se pega la isla, según los ajustes. */
 type Alignment = "left" | "center" | "right";
 const alignment = ref<Alignment>("center");
+
+/**
+ * Alineación de la zona visible dentro de la ventana fija.
+ *
+ * La ventana ya lleva su margen (WINDOW_PADDING en Rust): centrada, la isla no
+ * necesita relleno. Con alineación a un lado la zona visible se pega a ese
+ * borde (ver `place_island` en lib.rs), y los 50 px son WINDOW_PADDING +
+ * OVERSHOOT_MARGIN. Cada rama lleva su propio `justify-items`: dos utilidades
+ * así en el mismo elemento se pisarían según el orden en que Tailwind las emite.
+ */
+const stageAlignment = computed(() => {
+  if (alignment.value === "left") return "justify-items-start pl-[50px]";
+  if (alignment.value === "right") return "justify-items-end pr-[50px]";
+  return "justify-items-center";
+});
 /** Aspecto de la isla cerrada, según los ajustes: píldora o pestaña mínima. */
 type CollapsedStyle = "pill" | "tab";
 const collapsedStyle = ref<CollapsedStyle>("pill");
@@ -51,9 +84,19 @@ useSystemPower((state) => {
     kind: "power",
     label: state.plugged ? `${state.percent}% · Cargando` : `${state.percent}%`,
     // Al enchufar, el aviso es grande y se queda algo más: la animación de la
-    // batería necesita su segundo largo para verse entera.
+    // batería necesita su segundo largo para verse entera. Al desenchufar se
+    // despliega con el formato genérico.
     duration: state.plugged ? 4500 : 3200,
-    data: { plugged: state.plugged, percent: state.percent, large: state.plugged },
+    data: state.plugged
+      ? { plugged: true, percent: state.percent, large: true }
+      : {
+          plugged: false,
+          percent: state.percent,
+          deployed: true,
+          title: "Cargador desconectado",
+          subtitle: `${state.percent}% de batería`,
+          level: state.percent,
+        },
   });
 });
 
@@ -61,16 +104,22 @@ useSystemPower((state) => {
  * Aviso de volumen al cambiarlo desde el sistema (teclas, mezclador…).
  *
  * Con la isla abierta se ignora: el panel ya tiene su control deslizante, que
- * muestra el valor, y una franja encima repetiría lo que el usuario está viendo
- * mover. El silencio se anuncia como texto, no como un 0 %.
+ * muestra el valor, y un aviso encima taparía justo lo que el usuario está
+ * moviendo. El silencio se anuncia como texto, no como un 0 %.
  */
 useVolumeEvents((change) => {
   if (expanded.value) return;
   notifications.notify({
     kind: "volume",
     label: change.muted || change.level === 0 ? "Silencio" : `Volumen ${change.level}%`,
-    duration: 1600,
-    data: { muted: change.muted || change.level === 0, level: change.level },
+    duration: 1800,
+    data: {
+      muted: change.muted || change.level === 0,
+      level: change.muted ? 0 : change.level,
+      deployed: true,
+      title: change.muted || change.level === 0 ? "Silencio" : "Volumen",
+      subtitle: change.muted || change.level === 0 ? "Sonido desactivado" : `${change.level}%`,
+    },
   });
 });
 
@@ -78,8 +127,8 @@ useVolumeEvents((change) => {
  * Notificación de otra aplicación (Teams, Outlook…).
  *
  * Se apilan en lugar de reemplazarse: dos mensajes seguidos son dos mensajes.
- * Con la isla abierta entra como franja con una sola línea, porque el panel
- * no tiene sitio para el formato grande.
+ * Con la isla abierta ocupa la isla entera, como cualquier otro aviso, y al
+ * retirarse vuelve el contenido.
  */
 useToastEvents((toast) => {
   const { title, body } = tidyToast(toast);
@@ -87,10 +136,53 @@ useToastEvents((toast) => {
   notifications.notify({
     kind: "toast",
     label: `${toast.app} · ${text}`,
-    duration: 5500,
+    duration: toastDuration(body),
     stack: true,
-    data: { tall: true, app: toast.app, title, body },
+    data: { tall: true, id: toast.id, app: toast.app, title, body, avatar: toast.avatar ?? null },
   });
+});
+
+/**
+ * Aviso al conectarse a una red Wi-Fi.
+ *
+ * El nombre de la red se recorta: `noticeWidth` estima el ancho a partir del
+ * texto y un SSID largo se comería la pantalla.
+ */
+useWifiEvents((wifi) => {
+  if (!wifi.ssid) return;
+  const name = wifi.ssid.length > 18 ? `${wifi.ssid.slice(0, 17)}…` : wifi.ssid;
+  notifications.notify({
+    kind: "wifi",
+    label: `Conectado · ${name}`,
+    duration: 3600,
+    // Aquí el nombre completo: el título y el subtítulo se recortan con
+    // puntos suspensivos en el propio panel, no hace falta acortarlo.
+    data: { signal: wifi.signal, deployed: true, title: "Conectado", subtitle: wifi.ssid },
+  });
+});
+
+/**
+ * Aviso al perder o recuperar internet.
+ *
+ * La recuperación usa el tipo `wifi`: es el mismo aviso azul y, si justo se
+ * acaba de anunciar otro, lo reemplaza en vez de apilarse.
+ */
+useInternetEvents((online) => {
+  notifications.notify(
+    online
+      ? {
+          kind: "wifi",
+          label: "Internet restablecido",
+          duration: 3600,
+          data: { deployed: true, title: "Internet restablecido", subtitle: "Conexión activa" },
+        }
+      : {
+          kind: "internet",
+          label: "Sin internet",
+          duration: 4500,
+          data: { deployed: true, title: "Sin internet", subtitle: "Revisa tu conexión" },
+        },
+  );
 });
 
 /** Aviso al cruzar el 20 % y el 10 % de batería sin cargador. */
@@ -99,7 +191,13 @@ useLowBatteryEvents((state) => {
     kind: "battery",
     label: state.percent <= 10 ? `Batería crítica ${state.percent}%` : `Batería baja ${state.percent}%`,
     duration: 5000,
-    data: { percent: state.percent },
+    data: {
+      percent: state.percent,
+      deployed: true,
+      title: state.percent <= 10 ? "Batería crítica" : "Batería baja",
+      subtitle: `${state.percent}% · conecta el cargador`,
+      level: state.percent,
+    },
   });
 });
 
@@ -108,6 +206,27 @@ const formatTime = (seconds: number) =>
 
 const playing = computed(() => media.state.value.playing);
 const trackTitle = computed(() => media.state.value.title || "Sin reproducción");
+
+/**
+ * ¿Hay algún medio con el que el reproductor tenga algo que enseñar?
+ *
+ * Sin sesión SMTC, o con una sesión vacía y parada, el reproductor solo
+ * mostraría «Sin reproducción» y una barra a cero. Una pista en pausa sí
+ * cuenta: el usuario puede querer reanudarla.
+ */
+const hasMedia = computed(() => {
+  const { hasSession, title, playing } = media.state.value;
+  return hasSession && (title !== "" || playing);
+});
+
+/**
+ * Lo que se dibuja de verdad: sin medios, el modo «música» cede a la vista de
+ * inicio. `mode` no cambia, así que en cuanto algo empieza a sonar la isla
+ * vuelve sola al reproductor, sin que nadie tenga que acordarse de volver.
+ */
+const displayMode = computed<Activity>(() =>
+  mode.value === "music" && !hasMedia.value ? "home" : mode.value,
+);
 const trackSubtitle = computed(() => {
   const { artist, album } = media.state.value;
   return [artist, album].filter(Boolean).join(" · ");
@@ -156,12 +275,12 @@ async function invokeResult<T>(command: string, args?: Record<string, unknown>) 
 // el clic-atraviesa sobre una ventana transparente la vuelve invisible.)
 /** Tamaño que debe tener la ventana según lo que haya abierto. */
 const targetSize = computed(() => {
-  // Cerrada, el aviso ensancha la píldora lo que pida su texto. Abierta no
-  // cambia el tamaño: el aviso se dibuja como franja dentro del panel, que
-  // el usuario abrió a propósito y puede estar usando.
+  // Cerrada, los avisos despliegan la isla al tamaño de su panel. Abierta no
+  // cambia el tamaño: el panel del aviso ocupa la isla tal como está (con o sin
+  // letra) y, al retirarse, vuelve el contenido.
   if (!expanded.value) {
     // El aviso del cargador crece al tamaño del panel (ver `showsCharge`).
-    if (notice.value?.data?.large) return EXPANDED;
+    if (notice.value?.data?.large || notice.value?.data?.deployed) return EXPANDED;
     // La notificación de otra app: píldora alta, con remitente y mensaje.
     if (notice.value?.data?.tall) return TOAST;
     return notice.value
@@ -255,9 +374,13 @@ async function toggleMute() {
 }
 
 function toggleIsland() {
-  // Con un aviso en pantalla, el primer toque lo descarta: abrir la isla
-  // encima dejaría el aviso tapado y la cola seguiría corriendo por detrás.
-  if (!expanded.value && notice.value) {
+  // Con un aviso en pantalla, el primer toque lo descarta, esté la isla como
+  // esté: abrirla o cerrarla debajo dejaría el aviso tapado y la cola seguiría
+  // corriendo por detrás. En una notificación de otra aplicación, además abre esa
+  // aplicación (Rust busca cuál por el id; no abre el chat concreto).
+  if (notice.value) {
+    const id = notice.value.kind === "toast" ? notice.value.data?.id : undefined;
+    if (typeof id === "number") void invokeResult("toast_open", { id });
     notifications.dismiss();
     return;
   }
@@ -338,7 +461,12 @@ function scrubTo(ratio: number) {
 </script>
 
 <template>
-  <div class="island-stage" :class="`align-${alignment}`">
+  <!-- `island-stage` no tiene estilos propios: es el asa de los selectores de la
+       isla de más abajo. La ventana tiene tamaño fijo y Rust recorta la zona
+       visible, así que la isla crece hacia el centro sin depender del viewport.
+       Sin relleno superior: cuelga del borde de la pantalla y su primer píxel es
+       también el primero de la ventana. -->
+  <div class="island-stage box-border grid h-screen w-screen items-start pt-0" :class="stageAlignment">
     <div class="island-wrap">
       <!-- Tinte de la carátula sobre cada muesca. El relleno base de las
            muescas es negro, y sin esto quedan como dos parches oscuros a los
@@ -356,7 +484,7 @@ function scrubTo(ratio: number) {
         ></div>
       </template>
     <TheIsland
-      :mode="mode"
+      :mode="displayMode"
       :notice="notice"
       :collapsed-style="collapsedStyle"
       :expanded="expanded"
@@ -410,34 +538,6 @@ body,
   min-height: 0;
   overflow: hidden;
   background: transparent !important;
-}
-
-.island-stage.align-left {
-  justify-items: start;
-  padding-left: 50px; /* WINDOW_PADDING + OVERSHOOT_MARGIN en lib.rs */
-}
-
-.island-stage.align-right {
-  justify-items: end;
-  padding-right: 50px;
-}
-
-.island-stage {
-  width: 100vw;
-  height: 100vh;
-  display: grid;
-  /* La ventana ya lleva el margen (WINDOW_PADDING en Rust): la isla va
-     centrada dentro de ella, sin relleno extra que la desplace. */
-  /* La ventana tiene tamaño fijo y Rust recorta la zona visible, así que la
-     isla se encoge y crece hacia el centro sin depender del viewport. Con
-     alineación a un lado, la zona visible se pega a ese borde de la ventana
-     (ver `place_island` en lib.rs). */
-  place-items: start center;
-  box-sizing: border-box;
-  /* Sin relleno superior: la isla cuelga del borde de la pantalla. La ventana
-     se coloca pegada al borde desde Rust, así que su primer píxel es también
-     el primero de la isla. */
-  padding-top: 0;
 }
 
 /* En la ventana flotante la isla se centra sola, sin posicionamiento absoluto.
@@ -622,16 +722,6 @@ body,
    carátula que la isla. */
 .island-wrap:has(.island.is-expanded.has-lyrics) {
   --island-width: 540px;
-}
-
-/* Igual que `.island-morph` en style.css: quien pidió menos movimiento no
-   debe ver animarse tampoco las muescas. */
-@media (prefers-reduced-motion: reduce) {
-  .island-wrap::before,
-  .island-wrap::after,
-  .notch-art {
-    transition-duration: 0.01ms;
-  }
 }
 
 /* Colgando del borde, la sombra solo tiene sentido hacia abajo y a los lados;

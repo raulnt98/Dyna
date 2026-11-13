@@ -7,7 +7,7 @@
  * pegaba con el panel). Usa las primitivas de Reka UI, que traen el teclado
  * (flechas, Enter, Esc, escribir para saltar) y el foco accesibles.
  *
- * Los colores van escritos aquí y no como variables del panel: la lista se
+ * Los colores son literales y no variables del panel: la lista se
  * dibuja en un portal, fuera de `.settings`, y allí las variables no existen.
  */
 import {
@@ -32,25 +32,25 @@ const model = defineModel<T>({ required: true });
 
 <template>
   <SelectRoot v-model="model">
-    <SelectTrigger :id="id" class="ui-select-trigger">
+    <SelectTrigger :id="id" class="group inline-flex flex-none cursor-pointer items-center gap-2.5 rounded-[7px] border border-white/7 bg-[#1a1d27] py-1.5 pr-2.5 pl-3 whitespace-nowrap text-ink transition-[border-color,background-color] duration-150 hover:border-white/16 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent data-[state=open]:border-white/24 data-[state=open]:bg-[#1f2330] motion-reduce:duration-[0.01ms]">
       <SelectValue />
-      <svg class="ui-select-chevron" viewBox="0 0 10 6" aria-hidden="true">
+      <svg class="h-1.5 w-2.5 flex-none fill-none stroke-[#7f8292] stroke-[1.4] transition-transform duration-[180ms] [stroke-linecap:round] [stroke-linejoin:round] group-data-[state=open]:rotate-180 motion-reduce:duration-[0.01ms]" viewBox="0 0 10 6" aria-hidden="true">
         <path d="M1 1l4 4 4-4" />
       </svg>
     </SelectTrigger>
 
     <SelectPortal>
-      <SelectContent class="ui-select-content" position="popper" :side-offset="6" align="end">
+      <SelectContent class="z-50 min-w-(--reka-select-trigger-width) origin-(--reka-select-content-transform-origin) rounded-[10px] border border-white/10 bg-[#171a24] p-1 font-sans text-[13px] text-ink shadow-[0_14px_34px_rgba(0,0,0,0.55)] data-[state=open]:animate-select-in motion-reduce:animate-none" position="popper" :side-offset="6" align="end">
         <SelectViewport>
           <SelectItem
             v-for="option in options"
             :key="option.value"
             :value="option.value"
-            class="ui-select-item"
+            class="flex cursor-pointer items-center justify-between gap-[18px] rounded-[7px] px-2.5 py-[7px] outline-none select-none data-highlighted:bg-white/7 data-[state=checked]:font-[550]"
           >
             <SelectItemText>{{ option.label }}</SelectItemText>
-            <SelectItemIndicator class="ui-select-check">
-              <svg viewBox="0 0 12 10" aria-hidden="true"><path d="M1 5.2l3.2 3.2L11 1.6" /></svg>
+            <SelectItemIndicator class="grid place-items-center">
+              <svg class="h-[9px] w-[11px] fill-none stroke-accent stroke-[1.6] [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 12 10" aria-hidden="true"><path d="M1 5.2l3.2 3.2L11 1.6" /></svg>
             </SelectItemIndicator>
           </SelectItem>
         </SelectViewport>
@@ -58,128 +58,3 @@ const model = defineModel<T>({ required: true });
     </SelectPortal>
   </SelectRoot>
 </template>
-
-<style>
-.ui-select-trigger {
-  display: inline-flex;
-  flex: none;
-  white-space: nowrap;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px 6px 12px;
-  color: #ececf1;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 7px;
-  background: #1a1d27;
-  font: inherit;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.ui-select-trigger:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.ui-select-trigger[data-state="open"] {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: #1f2330;
-}
-
-.ui-select-trigger:focus-visible {
-  outline: 2px solid #b7f36b;
-  outline-offset: 2px;
-}
-
-.ui-select-chevron {
-  width: 10px;
-  height: 6px;
-  flex: none;
-  fill: none;
-  stroke: #7f8292;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.18s;
-}
-
-.ui-select-trigger[data-state="open"] .ui-select-chevron {
-  transform: rotate(180deg);
-}
-
-/* --- Lista --- */
-.ui-select-content {
-  z-index: 50;
-  min-width: var(--reka-select-trigger-width);
-  padding: 4px;
-  color: #ececf1;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: #171a24;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  font-size: 13px;
-  transform-origin: var(--reka-select-content-transform-origin);
-}
-
-.ui-select-content[data-state="open"] {
-  animation: ui-select-in 0.14s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes ui-select-in {
-  from {
-    opacity: 0;
-    transform: scale(0.97) translateY(-3px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.ui-select-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 7px 10px;
-  border-radius: 7px;
-  outline: none;
-  cursor: pointer;
-  user-select: none;
-}
-
-.ui-select-item[data-highlighted] {
-  background: rgba(255, 255, 255, 0.07);
-}
-
-/* La opción elegida lleva una marca en el verde de acento. */
-.ui-select-item[data-state="checked"] {
-  font-weight: 550;
-}
-
-.ui-select-check {
-  display: grid;
-  place-items: center;
-}
-
-.ui-select-check svg {
-  width: 11px;
-  height: 9px;
-  fill: none;
-  stroke: #b7f36b;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ui-select-content[data-state="open"] {
-    animation: none;
-  }
-
-  .ui-select-chevron,
-  .ui-select-trigger {
-    transition-duration: 0.01ms;
-  }
-}
-</style>

@@ -1,6 +1,6 @@
 [package]
 name = "dynamic-island"
-version = "0.2.2"
+version = "0.3.0"
 description = "Dynamic Island para escritorio Windows"
 authors = ["Raul Nuñez"]
 license = "MIT"
@@ -21,6 +21,10 @@ serde_json = "1"
 ureq = { version = "3.5", features = ["json"] }
 
 [target."cfg(windows)".dependencies]
+# Lectura de solo lectura de la base de datos de notificaciones de Windows, para
+# la foto de perfil de los avisos (ver avatars.rs). `bundled` compila SQLite
+# dentro de la app: no depende de ninguna DLL del sistema.
+rusqlite = { version = "0.37", features = ["bundled"] }
 windows = { version = "0.62", features = [
     "Foundation",
     "Media_Control",
@@ -43,4 +47,9 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dwm",
     # GetSystemPowerStatus: bateria y corriente, para el aviso del cargador.
     "Win32_System_Power",
+    # WlanEnumInterfaces y WlanQueryInterface: red Wi-Fi actual, para el aviso
+    # al conectarse.
+    "Win32_NetworkManagement_WiFi",
+    # INetworkListManager: saber si hay salida a internet, no solo red local.
+    "Win32_Networking_NetworkListManager",
 ] }

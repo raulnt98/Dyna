@@ -25,10 +25,70 @@ pub struct AppToast {
     pub title: String,
     /// El resto del texto, en una sola cadena.
     pub body: String,
+    /// Foto de perfil del remitente como data URI, si el ajuste está activo y el
+    /// aviso la trae (ver `avatars.rs`). **Contenido privado.**
+    pub avatar: Option<String>,
 }
 
 /// Evento con la lista de aplicaciones detectadas, para el panel de ajustes.
 pub const APPS_EVENT: &str = "toasts://apps";
+
+/// Identificadores de aplicación de los avisos recientes, para abrirla al hacer
+/// clic. Se guardan aquí y no se mandan al frontend: el comando `toast_open`
+/// recibe solo el id del aviso, de modo que la ventana no puede pedir que se
+/// lance una aplicación cualquiera, únicamente la de un aviso que ya vio.
+static LAUNCH: std::sync::Mutex<Vec<(u32, String)>> = std::sync::Mutex::new(Vec::new());
+const LAUNCH_LEN: usize = 32;
+
+fn remember_launch(id: u32, aumid: String) {
+    if aumid.is_empty() {
+        return;
+    }
+    if let Ok(mut list) = LAUNCH.lock() {
+        list.retain(|(known, _)| *known != id);
+        if list.len() >= LAUNCH_LEN {
+            list.remove(0);
+        }
+        list.push((id, aumid));
+    }
+}
+
+/// Abre (o trae al frente) la aplicación que emitió el aviso `id`.
+///
+/// No abre el chat ni el mensaje concreto: Windows no permite reenviar la
+/// activación de un aviso desde fuera de la aplicación que lo recibe. Se lanza la
+/// aplicación por su identificador, igual que desde el menú Inicio.
+#[cfg(windows)]
+pub fn open(id: u32) -> bool {
+    use std::os::windows::process::CommandExt;
+
+    let Some(aumid) = LAUNCH
+        .lock()
+        .ok()
+        .and_then(|list| list.iter().find(|(known, _)| *known == id).map(|(_, a)| a.clone()))
+    else {
+        return false;
+    };
+    // El identificador va tal cual a una ruta de `shell:AppsFolder`: solo se
+    // admiten los caracteres de un AUMID normal, por si llegara algo extraño.
+    let valid = aumid
+        .chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '!' | '{' | '}' | ' ' | '('  | ')'));
+    if !valid {
+        return false;
+    }
+    // CREATE_NO_WINDOW: `explorer.exe` no debe abrir consola.
+    std::process::Command::new("explorer.exe")
+        .arg(format!("shell:AppsFolder\\{aumid}"))
+        .creation_flags(0x0800_0000)
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(not(windows))]
+pub fn open(_id: u32) -> bool {
+    false
+}
 
 /// Indica si el usuario activó las notificaciones de esa aplicación.
 ///
@@ -117,6 +177,9 @@ fn fetch(known: &HashSet<u32>, details: bool) -> Option<(Vec<u32>, Vec<AppToast>
             .and_then(|display| display.DisplayName())
             .map(|name| name.to_string_lossy())
             .unwrap_or_default();
+        if let Ok(aumid) = notification.AppInfo().and_then(|info| info.AppUserModelId()) {
+            remember_launch(id, aumid.to_string_lossy());
+        }
 
         // Sin `details` solo interesa descubrir la aplicación: el texto no se lee.
         if !details {
@@ -125,6 +188,7 @@ fn fetch(known: &HashSet<u32>, details: bool) -> Option<(Vec<u32>, Vec<AppToast>
                 app,
                 title: String::new(),
                 body: String::new(),
+                avatar: None,
             });
             continue;
         }
@@ -158,6 +222,7 @@ fn fetch(known: &HashSet<u32>, details: bool) -> Option<(Vec<u32>, Vec<AppToast>
             app,
             title,
             body: lines.join(" "),
+            avatar: None,
         });
     }
     Some((ids, fresh))
@@ -204,8 +269,14 @@ pub fn start(app: AppHandle) {
             if primed {
                 // Los ajustes pudieron cambiar al descubrir aplicaciones.
                 let apps = crate::settings::current().notification_apps;
-                for toast in fresh {
+                for mut toast in fresh {
                     if allowed(&toast.app, &apps) {
+                        // La foto va aparte: lee la base de datos de Windows y
+                        // descarga una imagen. No tiene interruptor propio: la
+                        // activación de la aplicación en ajustes es el permiso,
+                        // y solo prospera si el aviso trae foto de un servidor
+                        // de la lista de `avatars.rs`.
+                        toast.avatar = crate::avatars::for_notification(toast.id);
                         let _ = app.emit(TOAST_EVENT, toast);
                     }
                 }

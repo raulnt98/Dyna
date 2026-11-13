@@ -55,6 +55,8 @@ export interface AppToast {
   app: string;
   title: string;
   body: string;
+  /** Foto de perfil del remitente (data URI), si el ajuste está activo y el aviso la trae. */
+  avatar?: string | null;
 }
 
 /** Comprime espacios y saltos de línea: en una sola fila no tienen utilidad. */
@@ -104,4 +106,20 @@ export function useToastEvents(onToast: (toast: AppToast) => void) {
 /** Avisa cuando la batería cruza un umbral sin estar enchufado. */
 export function useLowBatteryEvents(onLow: (state: PowerState) => void) {
   listenWhileMounted<PowerState>("power://low", onLow);
+}
+
+/** Refleja `WifiState` de `network.rs`, que serializa en camelCase. */
+export interface WifiConnection {
+  ssid: string | null;
+  signal: number;
+}
+
+/** Avisa cuando el equipo se conecta a una red Wi-Fi o cambia de red. */
+export function useWifiEvents(onConnect: (wifi: WifiConnection) => void) {
+  listenWhileMounted<WifiConnection>("network://wifi", onConnect);
+}
+
+/** Avisa cuando el equipo pierde o recupera la salida a internet. */
+export function useInternetEvents(onChange: (online: boolean) => void) {
+  listenWhileMounted<{ online: boolean }>("network://internet", (state) => onChange(state.online));
 }

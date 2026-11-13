@@ -51,6 +51,10 @@ pub struct Settings {
     pub notify_volume: bool,
     /// Avisar al bajar al 20 % y al 10 % de batería.
     pub notify_low_battery: bool,
+    /// Avisar al conectarse a una red Wi-Fi.
+    pub notify_wifi: bool,
+    /// Avisar al perder o recuperar la salida a internet.
+    pub notify_internet: bool,
     /// Buscar letras sincronizadas en LRCLIB (envía título y artista).
     pub lyrics: bool,
     /// Mostrar en la isla las notificaciones de otras aplicaciones (Teams,
@@ -78,6 +82,8 @@ impl Default for Settings {
             notify_charger: true,
             notify_volume: true,
             notify_low_battery: true,
+            notify_wifi: true,
+            notify_internet: true,
             lyrics: true,
             app_notifications: false,
             notification_apps: Vec::new(),

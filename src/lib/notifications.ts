@@ -9,7 +9,7 @@
 import { computed, onUnmounted, ref } from "vue";
 
 /** Tipos de aviso que la isla sabe dibujar. */
-export type NoticeKind = "power" | "volume" | "battery" | "toast";
+export type NoticeKind = "power" | "volume" | "battery" | "toast" | "wifi" | "internet";
 
 export interface Notice {
   /** Identifica al emisor: dos avisos del mismo tipo se reemplazan, no se encolan. */
