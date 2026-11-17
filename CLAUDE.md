@@ -197,7 +197,7 @@ actualizar su viewport unos fotogramas después y se veía el fotograma viejo (l
 píldora duplicada). En su lugar `place_island` la recorta con `SetWindowRgn` a
 la forma exacta de la isla: píldora redondeada más las dos muescas cóncavas.
 
-**Bordes del estilo flotante: anillo opaco del color del escritorio.** Un píxel a medias (el que el CSS dibuja con antialiasing) dentro de la
+**Bordes del estilo flotante: anillo opaco NEGRO** (antes era del color del escritorio, muestreado por Rust; sobre un escritorio claro salía blanco y el usuario pidió que fuese siempre negro, así que se quitó el muestreo y el evento `island://backdrop`). Lo que sigue explica por qué hay anillo; donde dice «del color del escritorio», ahora es negro y el borde duro del recorte queda como un fino aro negro sobre fondos claros. Un píxel a medias (el que el CSS dibuja con antialiasing) dentro de la
 ventana **no se mezcla con el escritorio sino con blanco**: medido en la app real, con un escritorio de 39 y una isla de 10, los píxeles del borde valían
 89, 69 y 101. **Una prueba con fondo blanco no lo detecta** (blanco sobre blanco): comprueba siempre también sobre un fondo oscuro. La solución: el
 recorte sube 1 px (`g` en `set_island_region`) y la isla lleva un anillo de 2 px **opaco** (`box-shadow: 0 0 0 2px var(--island-ring)`,
@@ -414,6 +414,8 @@ el aviso se actualiza en el sitio. El panel desplegado admite `data.art` en luga
 **La vista de inicio mide CPU y memoria** (`homeStats`, `system_stats`) solo mientras está
 abierta y a la vista: `IslandApp.vue` consulta cada 1,5 s y descarta la primera lectura,
 porque el uso de CPU se calcula entre dos consultas seguidas.
+
+**Un estado vacío entre dos pistas se retiene 2,5 s** (`apply` en `media.ts`, `EMPTY_HOLD_MS`): YouTube Music en Brave pasa por «sin título» y el icono del navegador al cambiar de canción, y enseñarlo se veía como «Sin reproducción» entre las dos. Es previo al margen de `hasMedia`, que sigue ahí para la isla.
 
 **Perder los medios tiene 3 s de margen** (`hasMedia` sobre `mediaPresent`, `MEDIA_LOSS_GRACE_MS`, IslandApp.vue): al cambiar de pista SMTC pasa un instante sin sesión o con sesión vacía (según equipo y reproductor), y sin margen la isla saltaba a la hora. Ganarlos es inmediato.
 

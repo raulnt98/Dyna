@@ -33,6 +33,12 @@ Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
 
+### Novedades de la 0.4.2
+
+- **YouTube Music:** al cambiar de canción ya no aparece «Sin reproducción» ni el icono del navegador entre las dos.
+- **Borde de la isla flotante:** el anillo es siempre negro, nunca blanco.
+- **Tiempo en equipos de empresa:** las conexiones usan el almacén de certificados de Windows (proxys y antivirus que re-firman el tráfico) y reintentan si la red tarda en estar lista.
+
 ### Novedades de la 0.4.1
 
 - **Ciudad del tiempo con selector:** busca y elige entre coincidencias (con región y país), o pulsa **Usar mi ubicación** (servicio de ubicación de Windows; las coordenadas se guardan solo en tus ajustes y se envían a Open-Meteo para pedir el tiempo).

@@ -76,10 +76,10 @@ type IslandStyle = "notch" | "round";
 const collapsedStyle = ref<CollapsedStyle>("pill");
 const islandStyle = ref<IslandStyle>("notch");
 /**
- * Color del anillo que suaviza el borde del estilo flotante: el del escritorio alrededor de la isla (lo muestrea
- * Rust, ver `sample_backdrop`). Hasta la primera lectura, un gris oscuro neutro.
+ * Color del anillo que suaviza el borde del estilo flotante: siempre negro. Antes era el del escritorio
+ * (muestreado por Rust) y sobre un escritorio claro salía un aro blanco que se veía como un borde de otro color.
  */
-const ring = ref("rgb(38, 41, 43)");
+const ring = "#000";
 const media = useSystemMedia();
 
 /** Cola de avisos: interrumpen la píldora compacta y se retiran solos. */
@@ -305,8 +305,17 @@ async function refreshWeather() {
   }
   const result = await invokeResult<{ city: string; temp: number; text: string; kind: string; max: number | null; min: number | null } | null>("weather_current");
   // Si la consulta falla (sin red) se conserva el último dato en vez de borrarlo.
-  if (result) weather.value = result;
+  if (result) {
+    weather.value = result;
+    weatherRetry = 0;
+  } else if (weatherRetry < 6) {
+    // Al iniciar sesión la red tarda en estar lista: reintenta pronto (15 s, 30 s, 45 s…) en lugar de esperar
+    // los 10 minutos del sondeo normal con la vista de inicio sin tiempo.
+    weatherRetry++;
+    window.setTimeout(() => void refreshWeather(), weatherRetry * 15_000);
+  }
 }
+let weatherRetry = 0;
 // La ciudad se teclea en los ajustes y cada letra llega como un cambio: se espera a que pare.
 let weatherDebounce: number | undefined;
 watch([weatherOn, weatherCity], () => {
@@ -991,9 +1000,6 @@ onMounted(async () => {
     // Rust avisa cuando el cursor está en la franja de encima de la isla: esa franja
     // queda fuera de la ventana y la página no ve el ratón sobre ella. Mientras esté
     // ahí, la isla no se recoge; al salir de ella sin volver a la isla, sí.
-    await listen<{ r: number; g: number; b: number }>("island://backdrop", (event) => {
-      ring.value = `rgb(${event.payload.r}, ${event.payload.g}, ${event.payload.b})`;
-    });
     await listen<{ inside: boolean }>("island://gap", (event) => {
       inGap = event.payload.inside;
       if (inGap) {

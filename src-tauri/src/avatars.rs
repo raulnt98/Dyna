@@ -43,6 +43,7 @@ fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         let config = ureq::Agent::config_builder()
+            .tls_config(crate::tls_config())
             .timeout_connect(Some(Duration::from_secs(3)))
             .timeout_global(Some(Duration::from_secs(5)))
             .max_redirects(0)

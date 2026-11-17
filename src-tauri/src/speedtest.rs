@@ -60,6 +60,7 @@ pub struct SpeedResult {
 
 fn agent() -> ureq::Agent {
     let config = ureq::Agent::config_builder()
+            .tls_config(crate::tls_config())
         .timeout_connect(Some(Duration::from_secs(4)))
         .timeout_global(Some(Duration::from_secs(20)))
         .max_redirects(0)

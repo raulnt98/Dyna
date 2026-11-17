@@ -60,16 +60,6 @@ const ROUND_GAP: f64 = 6.0;
 /// que la página no recibe ningún evento de ratón sobre ella; se averigua desde aquí.
 const GAP_EVENT: &str = "island://gap";
 
-/// Evento: el color del escritorio alrededor de la isla, para el anillo que suaviza su borde.
-const BACKDROP_EVENT: &str = "island://backdrop";
-
-#[derive(Clone, serde::Serialize)]
-struct Backdrop {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
 #[derive(Clone, serde::Serialize)]
 struct GapHover {
     inside: bool,
@@ -332,7 +322,7 @@ unsafe fn set_island_region(
     // (línea vertical solo a la derecha). Un píxel hacia dentro en la base por
     // lo mismo; los costados van a ras.
     // Estilo flotante (sin muescas, separado del borde): el recorte sube 1 px por todos los lados para dejar sitio a
-    // un anillo OPACO del color del fondo (`--island-ring`, ver `start_gap_watch`). El suavizado del borde se hace
+    // un anillo OPACO y negro (`--island-ring`). El suavizado del borde se hace
     // entre la isla y ese anillo, dos colores opacos, y el borde duro del recorte cae sobre el anillo, que es del
     // color del escritorio y por tanto no se ve.
     //
@@ -390,60 +380,6 @@ fn cursor_in_gap(hwnd_raw: isize, island_width: f64) -> bool {
     x >= left && x <= right && y >= top && y < island_top
 }
 
-/// Color medio del escritorio justo fuera de la isla: cuatro puntos, uno a cada lado, a unos píxeles del borde.
-///
-/// Se leen de la pantalla ya compuesta (`GetPixel` sobre el DC del escritorio), fuera del recorte de la ventana,
-/// donde solo hay escritorio. Si fallan menos de tres puntos se descarta la lectura y el anillo conserva su
-/// último color.
-#[cfg(windows)]
-fn sample_backdrop(hwnd_raw: isize, island_width: f64, island_height: f64) -> Option<(u8, u8, u8)> {
-    use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, ReleaseDC, CLR_INVALID};
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
-
-    let mut rect = RECT::default();
-    unsafe {
-        GetWindowRect(HWND(hwnd_raw as _), &mut rect).ok()?;
-    }
-    let win_w = MAX_ISLAND_WIDTH + SIDE_MARGIN * 2.0;
-    let scale = (rect.right - rect.left) as f64 / win_w;
-    if scale <= 0.0 {
-        return None;
-    }
-    let left = rect.left as f64 + island_left(island_width) * scale;
-    let right = left + island_width * scale;
-    let top = rect.top as f64 + ROUND_GAP * scale;
-    let bottom = top + island_height * scale;
-    let (cx, cy) = ((left + right) / 2.0, (top + bottom) / 2.0);
-    // A 6 px del borde, o 3 en la franja de arriba (que mide justo 6): bastante lejos para no tocar la isla ni su
-    // anillo, y bastante cerca para que sea el mismo fondo.
-    let points = [
-        (left - 6.0 * scale, cy),
-        (right + 6.0 * scale, cy),
-        (cx, top - 3.0 * scale),
-        (cx, bottom + 6.0 * scale),
-    ];
-    let (mut sum, mut valid) = ([0u32; 3], 0u32);
-    unsafe {
-        let dc = GetDC(None);
-        if dc.is_invalid() {
-            return None;
-        }
-        for (x, y) in points {
-            let color = GetPixel(dc, x.round() as i32, y.round() as i32).0;
-            if color == CLR_INVALID {
-                continue;
-            }
-            sum[0] += color & 0xFF;
-            sum[1] += (color >> 8) & 0xFF;
-            sum[2] += (color >> 16) & 0xFF;
-            valid += 1;
-        }
-        ReleaseDC(None, dc);
-    }
-    (valid >= 3).then(|| ((sum[0] / valid) as u8, (sum[1] / valid) as u8, (sum[2] / valid) as u8))
-}
-
 /// Vigila el cursor sobre la franja y avisa a la isla solo cuando cambia.
 #[cfg(windows)]
 fn start_gap_watch(app: tauri::AppHandle) {
@@ -458,11 +394,8 @@ fn start_gap_watch(app: tauri::AppHandle) {
             std::thread::sleep(std::time::Duration::from_millis(500));
         };
         let mut was_inside = false;
-        let mut tick = 0u32;
-        let mut last_backdrop: Option<(u8, u8, u8)> = None;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(40));
-            tick = tick.wrapping_add(1);
             let (width, height) = ISLAND_SIZE.lock().map(|size| *size).unwrap_or((116.0, 34.0));
             // Solo hay franja con el estilo flotante, en la isla abierta y en la píldora cerrada. La pestaña
             // (8 px) no flota y no la tiene.
@@ -471,21 +404,6 @@ fn start_gap_watch(app: tauri::AppHandle) {
             if inside != was_inside {
                 was_inside = inside;
                 let _ = app.emit(GAP_EVENT, GapHover { inside });
-            }
-
-            // Color del escritorio alrededor de la isla, unas dos veces por segundo: es el del anillo que deja el
-            // borde suave. Solo con el estilo flotante y con la isla quieta (durante la animación los puntos de
-            // muestreo caerían sobre la propia isla).
-            if tick % 12 == 0 && has_gap {
-                if let Some(rgb) = sample_backdrop(hwnd_raw, width, height) {
-                    let changed = last_backdrop.is_none_or(|old| {
-                        old.0.abs_diff(rgb.0) > 2 || old.1.abs_diff(rgb.1) > 2 || old.2.abs_diff(rgb.2) > 2
-                    });
-                    if changed {
-                        last_backdrop = Some(rgb);
-                        let _ = app.emit(BACKDROP_EVENT, Backdrop { r: rgb.0, g: rgb.1, b: rgb.2 });
-                    }
-                }
             }
         }
     });
@@ -1354,4 +1272,14 @@ mod region_tests {
         let spans = pill_spans(30, 0, 150, 60, 20.0, 0.0, 14.0);
         println!("{}", dibujo(&spans, 10, 60));
     }
+}
+
+/// TLS de las peticiones salientes con el almacén de certificados de Windows, no con los raíz que trae la
+/// biblioteca. En equipos de empresa un proxy o antivirus re-firma el tráfico con un certificado propio que
+/// solo el almacén de Windows conoce: con los raíz incluidos, la conexión fallaba (y el tiempo, las letras o
+/// el test de velocidad se quedaban mudos sin explicar por qué).
+pub(crate) fn tls_config() -> ureq::tls::TlsConfig {
+    ureq::tls::TlsConfig::builder()
+        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+        .build()
 }

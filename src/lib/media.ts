@@ -76,9 +76,36 @@ export function useSystemMedia() {
     const { invoke } = await import("@tauri-apps/api/core");
     const { listen } = await import("@tauri-apps/api/event");
 
-    const apply = (incoming: MediaState) => {
+    const commit = (incoming: MediaState) => {
       state.value = incoming;
       live.value = incoming.hasSession;
+    };
+    // Al cambiar de pista, los reproductores web (YouTube Music en Brave o Chrome) pasan un instante por un estado
+    // vacío —sin título, o sin sesión— antes de publicar la pista nueva. Enseñarlo dibujaba «Sin reproducción» y el
+    // icono del navegador entre las dos canciones. Un estado vacío que sigue a uno con pista se retiene un momento:
+    // si llega la pista nueva, el vacío nunca se ve; si no llega, es que de verdad se paró.
+    const EMPTY_HOLD_MS = 2500;
+    const isEmpty = (m: MediaState) => !m.hasSession || m.title === "";
+    let heldTimer: number | undefined;
+    let held: MediaState | undefined;
+    const apply = (incoming: MediaState) => {
+      if (isEmpty(incoming) && !isEmpty(state.value)) {
+        held = incoming;
+        if (heldTimer === undefined) {
+          heldTimer = window.setTimeout(() => {
+            heldTimer = undefined;
+            if (held) commit(held);
+            held = undefined;
+          }, EMPTY_HOLD_MS);
+        }
+        return;
+      }
+      if (heldTimer !== undefined) {
+        window.clearTimeout(heldTimer);
+        heldTimer = undefined;
+      }
+      held = undefined;
+      commit(incoming);
     };
 
     // Estado inicial, antes de que llegue el primer evento del sistema.
