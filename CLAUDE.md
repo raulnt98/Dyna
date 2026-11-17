@@ -85,8 +85,10 @@ error de compilación.
 | Ventana | `island_resize`, `island_set_interactive` | `lib.rs` |
 | Ajustes | `settings_get`, `settings_set`, `settings_close` | `settings.rs` |
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
+| Salidas de audio | `audio_outputs`, `audio_output_set` | `outputs.rs` |
 | Letras | `lyrics_current` | `lyrics.rs` |
 | Alimentación | `power_state` | `power.rs` |
+| Baterías | `batteries_list` | `batteries.rs` |
 | Sistema | `system_stats` | `sysstats.rs` |
 | Ventana | `monitors_list` | `lib.rs` |
 | Tiempo | `weather_current`, `weather_search`, `weather_locate_here` | `weather.rs` |
@@ -215,13 +217,29 @@ fila con la circunferencia exacta, **muescas incluidas**: un píxel entra solo s
 (se veía como un marco feo): no lo repongas. El suavizado de verdad exigiría otra arquitectura de ventana
 (capa con alfa por píxel); no es un ajuste.
 
+**Cristal líquido** (`glass`, ajuste «Material»; desenfoque **fijo en 7 px** por decisión del usuario, sin ajuste; **solo con `islandStyle: round`**: con muescas se probó y el usuario pidió revertirlo):
+la clase `is-glass` de `.island-wrap` (IslandApp.vue) pone fondo translúcido, filo de luz y reflejo, y quita el anillo negro. El desenfoque
+del escritorio **se hace a mano** en `glass.rs`, porque Windows no ofrece uno que respete el recorte: el acrílico de
+`SetWindowCompositionAttribute` (probado) ignora `SetWindowRgn` y pinta toda la ventana de 640 px como un rectángulo, y
+`DwmEnableBlurBehindWindow` en Windows 10/11 solo da transparencia. Un hilo copia con `BitBlt` el rectángulo de pantalla bajo **la isla más grande posible** (540 × 108 px, centrado, no el de la isla de ese
+momento: así el fondo desenfocado está ahí en cada fotograma de la animación de abrir y cerrar, sin retirarlo ni recapturar; la
+página lo coloca con `center top / 540px 108px`) cada 200 ms y recomparando un hash, lo reduce a ½, le pasa tres desenfoques de caja y lo manda como BMP
+en un data URI por `island://glass` (`uri` vacío = apagado). Además satura el color ×1,45 (como el cristal de iOS: sin eso queda turbio) y manda la luminosidad media (`luma`): la página sube el velo de 0,30 (fondo oscuro) a 0,62 (blanco) para que el texto blanco se lea. La página lo pinta como última capa del `background` de `.island`
+(`--glass-image`). **Para no copiarse a sí misma, la ventana se excluye de la captura** (`WDA_EXCLUDEFROMCAPTURE`): con el desenfoque
+activo la isla no sale en capturas ni al compartir pantalla, y **una prueba con `CopyFromScreen` no la ve** (para revisar el aspecto,
+`DI_GLASS_DUMP=<carpeta>` en una compilación de desarrollo guarda el último fotograma como `glass-frame.bmp`, y un arnés CDP puede
+pintar la isla sobre ese fotograma). Es contenido privado de otro tipo: solo en memoria,
+nunca a disco (salvo el volcado de desarrollo) ni a logs. En un `background` con varias capas **solo la última puede ser un color**: el velo
+va como `linear-gradient` liso, o toda la declaración se invalida. `settings.json` escrito con `Set-Content -Encoding utf8` de PowerShell
+5.1 lleva BOM y la app lo ignora (vuelve a los valores por defecto): escríbelo sin BOM.
+
 **El recorte debe seguir a la píldora del CSS.** Windows pinta de pálido
 cualquier píxel transparente dentro de la región, así que si el recorte cambia
 de golpe asoma una forma vieja durante los 0,58 s del CSS. `animate_island`
 (`lib.rs`) lo interpola en un hilo con la misma curva y duración que
 `.island-morph`, y `island_resize` se avisa a la vez que arranca el CSS, al
-crecer y al encoger. La duración no es fija: 0,58 s cuando abre o cierra el usuario, 0,40 s cuando un
-aviso del sistema abre la isla y 0,46 s cuando se retira. `IslandApp.vue` la fija en la variable
+crecer y al encoger. La duración no es fija: 0,58 s cuando abre o cierra el usuario, 0,64 s cuando un
+aviso del sistema abre la isla y 0,68 s cuando se retira (se alargaron desde 0,40 y 0,46 porque se sentían bruscos; el contenido entra a partir de 0,16–0,4 s y sale en 0,46 s, ver «Movimiento» en `style.css`). `IslandApp.vue` la fija en la variable
 CSS `--morph` (píldora y muescas) y la pasa a `island_resize` (`duration_ms`) en la misma llamada:
 las dos deben coincidir, o el recorte asoma por detrás de la píldora. El recorte **no debe ir por delante** de la píldora (se
 vería una franja pálida) y las medidas de muesca y radio replican las del CSS:
@@ -287,7 +305,7 @@ estaba usando. Con un aviso en pantalla, el primer toque lo descarta, esté la
 isla abierta o cerrada. El volumen es la excepción: con la isla abierta se
 ignora, porque su panel ya tiene el deslizador.
 
-Si un aviso no trae panel propio, la píldora se ensancha: el ancho sale de `noticeWidth()`, que lo **estima a partir del texto**: la
+En el panel desplegado, icono y texto forman **un grupo centrado** (`justify-center`, y el texto mide lo que ocupa: con `flex-1` se estiraba y el grupo quedaba pegado a la izquierda); la canción presentada sí estira el texto para que su onda quede a la derecha. Si un aviso no trae panel propio, la píldora se ensancha: el ancho sale de `noticeWidth()`, que lo **estima a partir del texto**: la
 ventana nativa se redimensiona desde Rust antes de que el CSS pinte, así que no
 se puede medir el elemento ya dibujado. `TheIsland.vue` llama a esa misma
 función para el `style` de la píldora; si cada uno usara su propio número, la
@@ -337,6 +355,8 @@ funden (`art-fade`, con animación y no con transición porque su opacidad final
 la isla está abierta). Todo en `style.css`, sección «Cambio de pista». Las muescas deben fundirse
 con el mismo tiempo que el fondo, o saltarían de color mientras el resto se funde.
 
+**La estrella de favoritos y el selector de salida de audio** (reproductor abierto, solo en la ventana real). La estrella, en el extremo izquierdo de la fila de controles (junto a «anterior», simétrica al botón de salida), guarda la canción en una **lista local** (`localStorage` de la ventana de la isla, clave `island-favorites`, 1000 como máximo): SMTC no permite marcar «me gusta» en el reproductor, así que no se sincroniza con Spotify ni YouTube Music. El botón del extremo derecho de la fila de controles (donde iban las flechas) abre un selector que **sustituye al reproductor** (este se retira con un fundido y un desenfoque; el selector entra después, sin fondo propio, sobre el tinte de la carátula de la isla pero **sin la carátula en sí** —se quitó a petición del usuario, no la repongas—, con las salidas entrando escalonadas y, al cerrarse, saliendo en orden inverso a la misma velocidad que al entrar (~0,6 s) mientras el reproductor vuelve 200 ms después; **no hay botón de cierre**: se cierra pulsando en cualquier hueco del selector o eligiendo una salida; transición `picker` en `style.css`) con las salidas activas (`audio_outputs`, Core Audio); elegir una llama a `audio_output_set`, que usa **`IPolicyConfig`, una interfaz COM sin documentar** declarada a mano en `outputs.rs` (la usan SoundSwitch y EarTrumpet; hace falta la crate `windows-core` en `Cargo.toml` porque la macro `interface` genera rutas `windows_core::…`) y fija las tres funciones (consola, multimedia, comunicaciones). Solo acepta identificadores de la lista de salidas activas. Verificado: lista la salida real y `SetDefaultEndpoint` responde bien al fijar la que ya es predeterminada; **cambiar a otra salida no se ha probado** (esta máquina solo tiene una activa). Con el selector abierto la rueda del ratón no cambia de página. El icono (`OutputIcon.vue`, en el botón y en cada fila) sigue al tipo de la salida: auriculares, portátil, televisor, monitor o altavoz, adivinado por el nombre en `guess_kind` (Windows no lo da). Los altavoces integrados cuentan como **portátil** solo si el equipo tiene batería (`power::read_state().has_battery`); «tv» y «lg» se buscan como palabra suelta, no como trozo de otra («output»).
+
 **La fila de arriba del reproductor tiene el orden y el sitio fijos:** letra, volumen y la onda. El botón de letra
 no desaparece sin letra, queda atenuado y deshabilitado (`lyricsAvailable`), para que nada se mueva al
 cambiar de pista. El deslizador de volumen flota a la izquierda de su botón (absoluto) y no empuja a
@@ -371,11 +391,9 @@ aplicaciones detectadas) no se pierde al cambiar. Un ajuste nuevo va en la pesta
 para que la línea mida lo mismo): cada bloque cae donde luego caerá el texto y al llegar los datos nada se mueve. Se midió: filas,
 barras y pie coinciden al píxel. Si cambias el contenido de una página, cambia también su esqueleto (`.skeleton`, style.css).
 
-**La isla abierta es un carrusel de páginas** (`homePage`: `system`, `music`, `clock`, `speed`, en ese orden y dando la vuelta). El reproductor es una
+**La isla abierta es un carrusel de páginas** (`homePage`: `system`, `batteries`, `music`, `clock`, `speed`, en ese orden y dando la vuelta). El reproductor es una
 página más y solo entra en la rueda si hay algo en reproducción (`hasMedia`); `carousel` activa todo esto en la ventana real y la demo web
-lo deja apagado (ahí manda `mode`, una actividad por vez). Dos indicadores rotan entre páginas (`rotateHome` en `TheIsland.vue`) y **van en el mismo sitio en todas las páginas**: los extremos de la
-fila de abajo, que es donde caen en el reproductor (la fila de controles, que es donde sobra sitio: a media altura chocarían con los tiempos).
-Una sola definición, `NAV_ARROW`; medidas: izquierda (13, 67), derecha (293, 67), 24 × 28 px, relativas a la isla. Si cambias una, cambia todas. **El reproductor es lo principal mientras suena algo:** la isla se abre en él (si no suena nada,
+lo deja apagado (ahí manda `mode`, una actividad por vez). Se navega con la **rueda del ratón** y no hay flechas (se quitaron a petición del usuario; no las repongas). Hubo una página «Estante» (temporizador, tiempo y CPU) y se quitó por inútil a petición del usuario: no la repongas. **La página «Baterías»** (`homeBatteries`, `batteries_list` en `batteries.rs`) lista el portátil (`power.rs`) y los dispositivos Bluetooth conectados que informen su carga por la propiedad `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2` (la que lee el panel de Bluetooth de Configuración). **Esa propiedad no está en el dispositivo principal sino en el nodo de uno de sus servicios** (unos auriculares clásicos: «Hands-Free AG», `BTHENUM\{0000111E-…}`), y solo mientras está conectado: por eso `bluetooth_batteries` recorre los nodos presentes con `CM_Get_Device_ID_List` en lugar de enumerar dispositivos conectados con WinRT (que daba vacío; se midió con unos soundcore P40i: nodo AG 90 %, dispositivo principal nada). Windows **conserva la última carga en dispositivos ya desconectados** (un altavoz apagado seguía dando 20 %), así que solo cuentan los que tienen conectado su nodo principal (`BTHENUMDEV_<dirección>`, propiedad `{83DA6326-97A6-4088-9453-A1923F573B29} 15`). Los que no la informan, simplemente no salen. La página no lleva título. Se consulta solo con su página a la vista (al abrirla y cada 20 s). Muestra hasta cuatro anillos. El tipo (icono) se adivina por el nombre (`guess_kind`). Verificado con unos auriculares clásicos; los de bajo consumo (ratón, teclado) no se han probado. **La rueda del ratón cambia de página** con la isla abierta, y es el único modo de navegar (`onWheel` en `TheIsland.vue`): abajo la siguiente, arriba la anterior, con umbral y bloqueo de 560 ms para que la inercia del panel táctil no salte varias; no actúa con un aviso a la vista ni con la letra abierta. **Los cambios de página son suaves** (`page-swap` en `style.css`: sale en 0,28 s y entra en 0,42 s con la curva de iOS; el cambio reproductor ↔ resto lo anima `v-auto-animate` con 420 ms): `txt-swap` (0,17 s) es para cambiar un texto y se sentía seco en una página entera. **El reproductor es lo principal mientras suena algo:** la isla se abre en él (si no suena nada,
 en la hora), y si se rota a otra página y se deja sin tocar 15 s vuelve sola (`armBackToPlayer`, IslandApp.vue; cada movimiento del puntero
 reinicia la cuenta, y no corre durante un test de velocidad). Al salir del reproductor se cierra la letra, o la página siguiente se quedaría a
 540 px. CPU y RAM (ajuste `homeStats`) solo se miden con su página a la vista. El test de velocidad (ajuste `speedtest`) guarda su estado en
@@ -415,13 +433,13 @@ el aviso se actualiza en el sitio. El panel desplegado admite `data.art` en luga
 abierta y a la vista: `IslandApp.vue` consulta cada 1,5 s y descarta la primera lectura,
 porque el uso de CPU se calcula entre dos consultas seguidas.
 
-**La carátula no se reenvía en cada evento** (`artwork_kept` en `MediaState`, lib.rs y `media.ts`): es un data URI de cientos de kB y el estado se emite hasta 4 veces por segundo al avanzar la posición; reenviarlo era la mayor fuente de CPU (la app llegó a 12 % con música sonando). Si es igual a la del evento anterior va vacía con `artworkKept: true` y el frontend conserva la que tenía; `media_state` la manda siempre entera. El manager de SMTC también se guarda (`manager()` en smtc.rs) en vez de pedir uno nuevo cada 250 ms, que acumulaba cientos de hilos.
+**La carátula no se reenvía en cada evento** (`artwork_kept` en `MediaState`, lib.rs y `media.ts`): es un data URI de cientos de kB y el estado se emite hasta 4 veces por segundo al avanzar la posición; reenviarlo era la mayor fuente de CPU (la app llegó a 12 % con música sonando). Si es igual a la del evento anterior va vacía con `artworkKept: true` y el frontend conserva la que tenía; `media_state` la manda siempre entera. El manager de SMTC también se reutiliza (`manager()` en smtc.rs) en vez de pedir uno nuevo cada 250 ms, que acumulaba cientos de hilos, pero **solo un segundo**: guardado indefinidamente (0.4.3) dejaba el estado desfasado y el botón de reproducir/pausa no cambiaba de forma.
 
 **Un estado vacío entre dos pistas se retiene 2,5 s** (`apply` en `media.ts`, `EMPTY_HOLD_MS`): YouTube Music en Brave pasa por «sin título» y el icono del navegador al cambiar de canción, y enseñarlo se veía como «Sin reproducción» entre las dos. Es previo al margen de `hasMedia`, que sigue ahí para la isla.
 
 **Perder los medios tiene 3 s de margen** (`hasMedia` sobre `mediaPresent`, `MEDIA_LOSS_GRACE_MS`, IslandApp.vue): al cambiar de pista SMTC pasa un instante sin sesión o con sesión vacía (según equipo y reproductor), y sin margen la isla saltaba a la hora. Ganarlos es inmediato.
 
-**Sin medios, la isla muestra la vista de inicio (`home`).** `displayMode` en `IslandApp.vue` cambia
+**La píldora cerrada sin música enseña «hora | icono y temperatura»** cuando el tiempo está activado y ya hay lectura. Se ensancha (`homePillWidth` en `notifications.ts`, que **estima** el ancho por número de caracteres: `TheIsland.vue` y `IslandApp.vue` —`targetSize`— deben llamarla con los mismos datos, o la píldora y su ventana se desincronizan); sin tiempo, o con la pestaña mínima, sigue en 116 px. **Sin medios, la isla muestra la vista de inicio (`home`).** `displayMode` en `IslandApp.vue` cambia
 `music` por `home` cuando no hay sesión SMTC, o hay una vacía y parada; una pista en pausa
 cuenta como medio. `mode` no cambia, así que al sonar algo la isla vuelve sola al reproductor.
 `home` no se elige a mano y no está en la lista de actividades de la demo.

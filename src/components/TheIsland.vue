@@ -7,8 +7,6 @@
  */
 import {
   IconArrowDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconRefresh,
   IconArrowDownToArc,
   IconCloud,
@@ -20,8 +18,14 @@ import {
   IconMoon as IconMoonWeather,
   IconSun as IconSunWeather,
   IconBell,
+  IconBluetooth,
   IconBoltFilled,
   IconClock,
+  IconDeviceLaptop,
+  IconDeviceSpeaker,
+  IconHeadphones,
+  IconKeyboard,
+  IconMouse,
   IconDots,
   IconMessage,
   IconMicrophone,
@@ -34,16 +38,20 @@ import {
   IconVolume2,
   IconVolumeOff,
   IconX,
+  IconCheck,
+  IconStar,
+  IconStarFilled,
 } from "@tabler/icons-vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import NoticeIcon from "@/components/NoticeIcon.vue";
 import SkipIcon from "@/components/SkipIcon.vue";
 import ArtSwap from "@/components/ArtSwap.vue";
+import OutputIcon from "@/components/OutputIcon.vue";
 import WaveBars from "@/components/WaveBars.vue";
 import ToastMarquee from "@/components/ToastMarquee.vue";
 import { vAutoAnimate } from "@formkit/auto-animate/vue";
 import type { Activity } from "@/lib/activities";
-import { noticeWidth } from "@/lib/notifications";
+import { homePillWidth, noticeWidth } from "@/lib/notifications";
 
 const props = defineProps<{
   mode: Activity;
@@ -106,6 +114,14 @@ const props = defineProps<{
   };
   /** Ofrecer la página de CPU y RAM en la vista de inicio. */
   systemEnabled?: boolean;
+  /** Página «Baterías» del carrusel (ajuste `homeBatteries`) y su última lectura; `null` mientras carga. */
+  /** La canción actual está en los favoritos de la isla (la estrella junto al título). */
+  isFavorite?: boolean;
+  /** Salidas de audio y si el selector está abierto; `null` mientras se leen. Solo en la ventana real (`carousel`). */
+  outputs?: { id: string; name: string; kind: string; isDefault: boolean }[] | null;
+  outputsOpen?: boolean;
+  batteriesEnabled?: boolean;
+  batteries?: { id: string; name: string; kind: string; percent: number; charging: boolean }[] | null;
   /**
    * La isla abierta es un carrusel de páginas (la ventana real). Con él, el reproductor es una página
    * más, junto a la hora, CPU y RAM y la velocidad. Sin él (la demo web, que enseña una actividad por
@@ -192,7 +208,7 @@ const weatherIcon = computed(() => WEATHER_ICONS[(props.weather?.kind ?? "cloud"
  * lado contrario vuelve a la hora. Cabe una página más a cada lado cuando haga falta.
  * Sin el padre (la demo web) lleva su propio estado; al cerrar la isla se vuelve a la hora.
  */
-const homePage = defineModel<"clock" | "system" | "speed" | "music">("homePage", { default: "clock" });
+const homePage = defineModel<"clock" | "system" | "batteries" | "speed" | "music">("homePage", { default: "clock" });
 watch(
   () => props.expanded,
   (isOpen) => {
@@ -207,11 +223,11 @@ watch(
  */
 const expandedMode = computed(() => (props.carousel ? (homePage.value === "music" ? "music" : "home") : props.mode));
 /** Las páginas, en el orden del carrusel. Una desactivada en los ajustes no está en la rueda. */
-type HomePage = "clock" | "system" | "speed" | "music";
-const HOME_PAGE_NAMES: Record<HomePage, string> = { clock: "Hora", system: "CPU y memoria", speed: "Test de velocidad", music: "Reproductor" };
+type HomePage = "clock" | "system" | "batteries" | "speed" | "music";
 const homePages = computed<HomePage[]>(() => {
   const pages: HomePage[] = [];
   if (props.systemEnabled) pages.push("system");
+  if (props.batteriesEnabled) pages.push("batteries");
   // El reproductor va entre CPU y RAM y la hora: desde él, una flecha lleva a la hora y la otra al sistema.
   if (props.carousel && props.hasMedia) pages.push("music");
   pages.push("clock");
@@ -224,10 +240,33 @@ function neighbour(delta: number): HomePage {
   const index = Math.max(0, pages.indexOf(homePage.value));
   return pages[(index + delta + pages.length) % pages.length];
 }
-const homePageName = (delta: number) => HOME_PAGE_NAMES[neighbour(delta)];
 const rotateHome = (delta: number) => {
   homePage.value = neighbour(delta);
 };
+/**
+ * Rueda del ratón sobre la isla abierta: cambia de página, hacia abajo la siguiente y hacia arriba la anterior,
+ * igual que las flechas. Con el panel de un aviso a la vista, o con la letra abierta, no hace nada. Un giro de rueda
+ * o un gesto del panel táctil llegan como muchos eventos seguidos (con inercia): se acumula hasta un umbral y,
+ * tras cambiar, se ignora la rueda un momento, o una sola pasada saltaría varias páginas.
+ */
+const WHEEL_THRESHOLD = 40;
+const WHEEL_LOCK_MS = 560;
+let wheelAcc = 0;
+let wheelLastAt = 0;
+let wheelLockedUntil = 0;
+function onWheel(event: WheelEvent) {
+  if (!props.carousel || !props.expanded || props.notice || props.lyricsOpen || props.outputsOpen || homePages.value.length < 2) return;
+  const now = performance.now();
+  if (now < wheelLockedUntil) return;
+  // Un silencio largo entre dos gestos reinicia la cuenta.
+  if (now - wheelLastAt > 220) wheelAcc = 0;
+  wheelLastAt = now;
+  wheelAcc += Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+  if (Math.abs(wheelAcc) < WHEEL_THRESHOLD) return;
+  rotateHome(wheelAcc > 0 ? 1 : -1);
+  wheelAcc = 0;
+  wheelLockedUntil = now + WHEEL_LOCK_MS;
+}
 // Si se apaga en los ajustes la página que se está viendo, se vuelve a la hora.
 watch(homePages, (pages) => {
   if (!pages.includes(homePage.value)) homePage.value = "clock";
@@ -304,7 +343,11 @@ const toastInitial = computed(() => toastApp.value.trim().charAt(0).toUpperCase(
  */
 const compactWidth = computed(() => {
   if (!showsPill.value || showsCharge.value || showsToast.value || showsDeployed.value || showsTab.value) return undefined;
-  const width = props.notice ? noticeWidth(props.notice.label) : 116;
+  const width = props.notice
+    ? noticeWidth(props.notice.label)
+    : props.mode === "home" && props.weather
+      ? homePillWidth(props.homeSeconds !== false, `${props.weather.temp}°`)
+      : 116;
   return { width: `${width}px` };
 });
 
@@ -333,12 +376,6 @@ const NOTICE_TONE: Record<string, string> = {
 const noticeTone = (kind: string) => NOTICE_TONE[kind] ?? "";
 const RING_PULSE = "grid size-6 flex-none animate-[ring-pulse_1.2s_ease-in-out_infinite] place-items-center rounded-full bg-[#46bd73] text-white [&>svg]:size-[13px]";
 const TOP = "flex min-w-0 items-center justify-start gap-[9px]";
-/**
- * Flechas del carrusel: **la misma posición en todas las páginas**, la de la fila de controles del reproductor
- * (pegadas a los extremos del área de contenido y al borde de abajo). Una sola definición para el reproductor y
- * para el resto: si cambia una, cambian las demás y no pueden desalinearse al rotar de página.
- */
-const NAV_ARROW = "absolute bottom-0 z-2 grid h-7 w-6 place-items-center text-white/30 transition-colors duration-150 hover:text-white";
 const COPY = "grid min-w-0 flex-1 gap-0.5";
 const COPY_STRONG = "truncate text-[11px] font-[650]";
 const COPY_SMALL = "truncate text-[8px] text-[#a2a2a8]";
@@ -360,6 +397,9 @@ const emit = defineEmits<{
   (e: "island-keydown", event: KeyboardEvent): void;
   (e: "island-enter"): void;
   (e: "speedtest"): void;
+  (e: "toggle-favorite"): void;
+  (e: "outputs-toggle"): void;
+  (e: "output-pick", id: string): void;
   (e: "island-leave", event: MouseEvent): void;
   (e: "choose", value: Activity): void;
   (e: "toggle-play"): void;
@@ -425,6 +465,7 @@ function onSeekKeydown(event: KeyboardEvent) {
 
 <template>
   <div
+    @wheel="onWheel"
     :class="[
       'island island-morph',
       {
@@ -512,14 +553,14 @@ function onSeekKeydown(event: KeyboardEvent) {
           ? 'items-center gap-2.5 pr-3.5 pl-2.5'
           : deployedWithBar
             ? 'flex-col justify-center gap-[11px] px-[26px]'
-            : 'items-center gap-[18px] px-[26px]'
+            : 'items-center justify-center gap-[18px] px-[26px]'
       "
       aria-hidden="true"
     >
       <!-- Con barra (volumen, batería): arriba icono y texto, y la barra debajo a todo
            el ancho, en vez de encajonada en la columna del texto. Sin barra, la fila
            desaparece (`contents`) y icono y texto quedan como siempre. -->
-      <div :class="deployedWithBar ? 'flex min-w-0 items-center gap-4' : 'contents'">
+      <div :class="deployedWithBar ? 'flex min-w-0 items-center justify-center gap-4' : 'contents'">
         <img
           v-if="deployedArt"
           :src="deployedArt"
@@ -534,7 +575,10 @@ function onSeekKeydown(event: KeyboardEvent) {
         >
           <NoticeIcon :kind="notice.kind" :muted="notice.data?.muted === true" />
         </span>
-        <span class="np-copy grid min-w-0 flex-1" :class="showsTrackBar ? 'gap-px' : 'gap-[3px]'">
+        <!-- El icono y el texto forman un grupo centrado en el panel (el texto ocupa lo que mide, no todo el ancho libre): con
+             `flex-1` el texto se estiraba hasta el borde y el grupo quedaba pegado a la izquierda. La canción presentada sí
+             lo estira, para que su onda quede a la derecha. -->
+        <span class="np-copy grid min-w-0" :class="showsTrackBar ? 'flex-1 gap-px' : 'flex-initial gap-[3px]'">
           <strong class="truncate leading-[1.15] font-semibold text-white/96" :class="showsTrackBar ? 'text-[14px]' : 'text-[18px]'">{{ deployedTitle }}</strong>
           <span v-if="deployedSubtitle" class="truncate text-white/60 tabular-nums" :class="showsTrackBar ? 'text-[11px]' : 'text-[12px]'">{{ deployedSubtitle }}</span>
         </span>
@@ -599,6 +643,13 @@ function onSeekKeydown(event: KeyboardEvent) {
       </template>
       <template v-else-if="mode === 'home'">
         <span class="text-[12px] font-[650] tabular-nums text-white/90">{{ homeTime }}</span>
+        <!-- Con el tiempo activado: hora | icono y temperatura. La píldora se ensancha lo justo (`homePillWidth`). -->
+        <template v-if="weather">
+          <i class="h-3 w-px flex-none bg-white/25"></i>
+          <span class="flex items-center gap-[5px] text-[12px] font-[650] tabular-nums text-white/90">
+            <component :is="weatherIcon" class="size-[14px] flex-none" :class="weatherTone" stroke-width="2" />{{ weather.temp }}°
+          </span>
+        </template>
       </template>
       <template v-else-if="mode === 'idle'">
         <span :class="[ALBUM, 'size-[30px] rounded-lg bg-[linear-gradient(145deg,#3b4b45,#18221f)] text-[13px] text-[#b7f36b] [&>svg]:size-[17px]']"><IconDots /></span>
@@ -636,25 +687,10 @@ function onSeekKeydown(event: KeyboardEvent) {
       </template>
     </div></Transition>
   
-    <Transition name="content"><div v-if="!showsPill && !showsPanel" v-auto-animate class="island-content">
+    <Transition name="content"><div v-if="!showsPill && !showsPanel" v-auto-animate="{ duration: 420, easing: 'cubic-bezier(.32,.72,0,1)' }" class="island-content">
       <template v-if="expandedMode === 'home'">
         <div class="relative h-full">
-          <!-- Carrusel: cada indicador pasa a la página de su lado, y al llegar al final da la
-               vuelta (de la última a la primera). Siempre hay dos mientras haya más de una página. -->
-          <template v-if="homePages.length > 1">
-            <button
-              :class="NAV_ARROW + ' left-0'"
-              :aria-label="'Ver ' + homePageName(-1)"
-              @click.stop="rotateHome(-1)"
-            ><IconChevronLeft class="size-4" /></button>
-            <button
-              :class="NAV_ARROW + ' right-0'"
-              :aria-label="'Ver ' + homePageName(1)"
-              @click.stop="rotateHome(1)"
-            ><IconChevronRight class="size-4" /></button>
-          </template>
-
-          <Transition name="txt-swap" mode="out-in">
+          <Transition name="page-swap" mode="out-in">
         <div :key="homePage" class="flex h-full flex-col items-center justify-center gap-1.5 px-8">
           <template v-if="homePage === 'clock'">
             <!-- Con el tiempo activo, la hora (con la fecha debajo) y, a su lado, el icono del cielo con
@@ -683,6 +719,47 @@ function onSeekKeydown(event: KeyboardEvent) {
                     <span>↑ {{ weather.max }}°</span><span>↓ {{ weather.min }}°</span>
                   </template>
                 </span>
+              </div>
+            </div>
+          </template>
+
+          <!-- Baterías: el portátil y los dispositivos Bluetooth conectados que informan su carga (hasta cuatro, que es
+               lo que cabe en una fila del panel). Anillo con el icono dentro, porcentaje y nombre debajo; rojo
+               por debajo del 20 %. -->
+          <template v-else-if="homePage === 'batteries'">
+            <div v-if="batteries && batteries.length" class="flex w-full items-start justify-center gap-4">
+              <div v-for="device in batteries.slice(0, 4)" :key="device.id" class="grid w-[64px] justify-items-center gap-0.5">
+                <span class="relative grid size-[42px] place-items-center">
+                  <svg class="absolute inset-0 size-full -rotate-90" viewBox="0 0 46 46" aria-hidden="true">
+                    <circle cx="23" cy="23" r="20" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="4" />
+                    <circle
+                      cx="23" cy="23" r="20" fill="none" stroke-width="4" stroke-linecap="round"
+                      :stroke="device.percent < 20 ? '#ff8a70' : device.percent < 40 ? '#f4cb82' : '#b7f36b'"
+                      :stroke-dasharray="125.66"
+                      :stroke-dashoffset="125.66 * (1 - device.percent / 100)"
+                      class="transition-[stroke-dashoffset] duration-500 ease-out"
+                    />
+                  </svg>
+                  <IconDeviceLaptop v-if="device.kind === 'laptop'" class="size-[18px] text-white/80" />
+                  <IconHeadphones v-else-if="device.kind === 'headphones'" class="size-[18px] text-white/80" />
+                  <IconMouse v-else-if="device.kind === 'mouse'" class="size-[18px] text-white/80" />
+                  <IconKeyboard v-else-if="device.kind === 'keyboard'" class="size-[18px] text-white/80" />
+                  <IconDeviceSpeaker v-else-if="device.kind === 'speaker'" class="size-[18px] text-white/80" />
+                  <IconBluetooth v-else class="size-[18px] text-white/80" />
+                </span>
+                <span class="flex items-center gap-0.5 text-[12px] font-semibold tabular-nums">
+                  {{ device.percent }}%<IconBoltFilled v-if="device.charging" class="size-[10px] text-[#b7f36b]" />
+                </span>
+                <span class="w-full truncate text-center text-[10px] text-[#8d8d98]">{{ device.name }}</span>
+              </div>
+            </div>
+            <span v-else-if="batteries" class="max-w-[240px] text-center text-[11px] leading-snug text-[#8d8d98]">Ningún dispositivo informa su batería. Conecta unos auriculares o un ratón Bluetooth.</span>
+            <!-- Esqueleto con la misma estructura que los anillos reales. -->
+            <div v-else class="flex w-full items-start justify-center gap-4" aria-hidden="true">
+              <div v-for="n in 3" :key="n" class="grid w-[64px] justify-items-center gap-0.5">
+                <span class="size-[42px] rounded-full bg-white/10"></span>
+                <span class="text-[12px] leading-[1.2] font-semibold text-transparent">00%</span>
+                <span class="skeleton w-9 rounded text-[10px] leading-[1.2] text-transparent">&nbsp;</span>
               </div>
             </div>
           </template>
@@ -797,7 +874,11 @@ function onSeekKeydown(event: KeyboardEvent) {
   
       <template v-else-if="expandedMode === 'music'">
         <div class="flex h-full min-w-0 items-stretch gap-3">
-        <div class="flex h-full w-[304px] min-w-0 flex-none flex-col justify-between">
+        <div
+          class="flex h-full w-[304px] min-w-0 flex-none flex-col justify-between transition-[opacity,filter] duration-[380ms] ease-[cubic-bezier(.32,.72,0,1)]"
+          :class="outputsOpen ? 'pointer-events-none opacity-0 blur-[6px]' : 'delay-[200ms]'"
+          :inert="outputsOpen"
+        >
           <div class="flex items-center gap-2.5">
             <span :class="[ALBUM, ALBUM_ART_BG, 'size-[34px] rounded-[5px] text-[14px]']">
               <ArtSwap :src="trackArtwork" :initial="trackInitial" />
@@ -900,10 +981,6 @@ function onSeekKeydown(event: KeyboardEvent) {
                  solo ocupan el centro, así que sobra sitio sin quitárselo a nada. En el centro de la altura
                  chocarían con los tiempos de la barra de progreso. -->
             <div class="relative flex items-center justify-center">
-              <template v-if="carousel && homePages.length > 1">
-                <button :class="NAV_ARROW + ' left-0'" :aria-label="'Ver ' + homePageName(-1)" @click.stop="rotateHome(-1)"><IconChevronLeft class="size-4" /></button>
-                <button :class="NAV_ARROW + ' right-0'" :aria-label="'Ver ' + homePageName(1)" @click.stop="rotateHome(1)"><IconChevronRight class="size-4" /></button>
-              </template>
               <div class="flex items-center justify-center gap-[9px]">
                 <button :class="[MC, MC_HOVER, CONTROL]" aria-label="Pista anterior" @click="emit('previous')"><IconPlayerTrackPrevFilled /></button>
                 <button
@@ -929,8 +1006,67 @@ function onSeekKeydown(event: KeyboardEvent) {
                 </button>
                 <button :class="[MC, MC_HOVER, CONTROL]" aria-label="Pista siguiente" @click="emit('next')"><IconPlayerTrackNextFilled /></button>
               </div>
+              <!-- Favoritos de la isla, en el extremo izquierdo de la fila de controles, junto a «anterior»: una lista local
+                   (SMTC no deja marcar «me gusta» en el reproductor). Simétrico al botón de salida de audio. -->
+              <button
+                v-if="carousel && hasMedia"
+                class="absolute bottom-0 left-0 z-2 grid h-7 w-6 cursor-pointer place-items-center transition-[color,transform] duration-150 hover:scale-110 active:scale-90 [&>svg]:size-[17px]"
+                :class="isFavorite ? 'text-[#f4cb82]' : 'text-white/45 hover:text-white'"
+                :aria-label="isFavorite ? 'Quitar de favoritos' : 'Añadir a favoritos'"
+                :aria-pressed="isFavorite"
+                @click.stop="emit('toggle-favorite')"
+              >
+                <IconStarFilled v-if="isFavorite" />
+                <IconStar v-else />
+              </button>
+              <!-- Salida de audio, en el extremo derecho de la fila de controles (donde antes iba una flecha). -->
+              <button
+                v-if="carousel"
+                class="absolute right-0 bottom-0 z-2 grid h-7 w-6 cursor-pointer place-items-center transition-colors duration-150 [&>svg]:size-[17px]"
+                :class="outputsOpen ? 'text-white' : 'text-white/45 hover:text-white'"
+                aria-label="Elegir la salida de audio"
+                :aria-expanded="outputsOpen"
+                @click.stop="emit('outputs-toggle')"
+              >
+                <OutputIcon :kind="outputs?.find((o) => o.isDefault)?.kind" />
+              </button>
             </div>
         </div>
+
+        <!-- Selector de la salida de audio. Sustituye al reproductor con la misma suavidad que un aviso (el reproductor se
+             retira y el selector entra con un fundido y un desenfoque leve), sin fondo propio: se ve el tinte de la
+             carátula de la isla, pero sin la carátula en sí (se quitó a petición del usuario). Las salidas entran
+             escalonadas. Tres filas caben; si hay más, se desplaza. -->
+        <Transition name="picker"><div
+          v-if="outputsOpen"
+          class="output-picker absolute inset-0 z-20 flex px-4 pt-2 pb-1.5"
+          role="listbox"
+          aria-label="Salida de audio"
+          @click.stop="emit('outputs-toggle')"
+          @wheel.stop
+        >
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div class="picker-item truncate text-[10px] font-medium tracking-wide text-white/55 uppercase" style="--i: 0">Salida de audio</div>
+            <div class="min-h-0 flex-1 overflow-y-auto [scrollbar-color:rgba(255,255,255,.28)_transparent] [scrollbar-width:thin]">
+              <button
+                v-for="(output, index) in outputs ?? []"
+                :key="output.id"
+                role="option"
+                :aria-selected="output.isDefault"
+                class="picker-item flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-[3px] text-left text-[12.5px] transition-colors hover:bg-white/10"
+                :class="output.isDefault ? 'text-white' : 'text-white/80'"
+                :style="{ '--i': index + 1 }"
+                @click.stop="emit('output-pick', output.id)"
+              >
+                <OutputIcon :kind="output.kind" class="size-4 flex-none" :class="output.isDefault ? 'text-[#b7f36b]' : 'text-white/60'" />
+                <span class="min-w-0 flex-1 truncate">{{ output.name }}</span>
+                <IconCheck v-if="output.isDefault" class="size-4 flex-none text-[#b7f36b]" />
+              </button>
+              <span v-if="outputs === null" class="picker-item block px-2 py-2 text-[12px] text-white/55" style="--i: 1">Buscando salidas…</span>
+              <span v-else-if="outputs && !outputs.length" class="picker-item block px-2 py-2 text-[12px] text-white/55" style="--i: 1">No hay salidas de audio activas.</span>
+            </div>
+          </div>
+        </div></Transition>
 
         <!-- Panel de karaoke: la línea en curso destacada, el resto atenuado. -->
         <div

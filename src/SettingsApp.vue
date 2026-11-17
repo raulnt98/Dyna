@@ -21,6 +21,8 @@ interface Settings {
   collapsedStyle: "pill" | "tab";
   /** Estilo de la isla, cerrada y abierta: con muescas o flotante redondeada. */
   islandStyle: "notch" | "round";
+  /** Material de cristal líquido (solo con el estilo flotante). */
+  glass: boolean;
   /** Arrancar junto con Windows. */
   autostart: boolean;
   /** Interruptor general de los avisos del sistema. */
@@ -55,6 +57,8 @@ interface Settings {
   homeSeconds: boolean;
   /** CPU y memoria en la vista de inicio. */
   homeStats: boolean;
+  /** Página de baterías de dispositivos. */
+  homeBatteries: boolean;
   /** La onda sigue el audio real del sistema. */
   audioVisualizer: boolean;
   /** Tiempo en la vista de inicio, y la ciudad que se consulta. */
@@ -76,6 +80,7 @@ const DEFAULTS: Settings = {
   alwaysOnTop: true,
   collapsedStyle: "pill",
   islandStyle: "notch",
+  glass: false,
   autostart: false,
   notifications: true,
   notifyCharger: true,
@@ -98,6 +103,7 @@ const DEFAULTS: Settings = {
   skipSeconds: 10,
   homeSeconds: true,
   homeStats: true,
+  homeBatteries: true,
   audioVisualizer: false,
   weather: false,
   weatherCity: "",
@@ -179,6 +185,14 @@ const timeFormat = computed<string>({
   get: () => (settings.value.homeSeconds ? "hms" : "hm"),
   set: (value) => {
     settings.value.homeSeconds = value === "hms";
+  },
+});
+
+/** El material se guarda como booleano (`glass`) y se elige como texto. */
+const material = computed<string>({
+  get: () => (settings.value.glass ? "glass" : "solid"),
+  set: (value) => {
+    settings.value.glass = value === "glass";
   },
 });
 
@@ -393,6 +407,22 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
             ]"
           />
         </div>
+
+        <div :class="ROW" :style="{ opacity: settings.islandStyle === 'round' ? 1 : 0.42 }">
+          <label class="grid min-w-0 gap-0.5" for="island-material">
+            <span class="font-medium">Material</span>
+            <span :class="DESC">Cristal líquido (beta) desenfoca el escritorio de detrás. La isla no sale en capturas de pantalla con este material. Solo con el estilo flotante.</span>
+          </label>
+          <SettingsSelect
+            id="island-material"
+            v-model="material"
+            :options="[
+              { value: 'solid', label: 'Sólido' },
+              { value: 'glass', label: 'Cristal líquido (beta)' },
+            ]"
+          />
+        </div>
+
       </div>
     </section>
 
@@ -443,6 +473,12 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
           v-model="settings.homeStats"
           name="CPU y memoria"
           desc="Muestra el uso del procesador y de la memoria en la vista de inicio."
+        />
+
+        <SettingsToggle
+          v-model="settings.homeBatteries"
+          name="Baterías de dispositivos"
+          desc="Una página con la carga del portátil y de los dispositivos Bluetooth conectados que la informen: auriculares, ratón, teclado."
         />
 
         <SettingsToggle

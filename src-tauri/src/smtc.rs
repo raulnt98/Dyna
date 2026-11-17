@@ -221,18 +221,22 @@ mod imp {
     ///
     /// `RequestAsync` es asíncrono en WinRT; `join()` espera el resultado.
     ///
-    /// Se guarda y se reutiliza: se llama cada 250 ms y pedir uno nuevo cada vez crea objetos y hilos del sistema
-    /// que se acumulaban (cientos de hilos tras un rato con música sonando).
+    /// Se reutiliza **un segundo**, no más: se llama cada 250 ms y pedir uno nuevo cada vez creaba objetos e hilos
+    /// del sistema que se acumulaban (cientos de hilos tras un rato con música). Pero uno guardado mucho tiempo
+    /// dejaba el estado de reproducción desfasado (el botón de reproducir/pausa no cambiaba de forma aunque la
+    /// orden se cumpliese), así que se renueva cada segundo.
     fn manager() -> windows::core::Result<Manager> {
-        static MANAGER: Mutex<Option<Manager>> = Mutex::new(None);
+        static MANAGER: Mutex<Option<(Manager, std::time::Instant)>> = Mutex::new(None);
         if let Ok(guard) = MANAGER.lock() {
-            if let Some(manager) = guard.as_ref() {
-                return Ok(manager.clone());
+            if let Some((manager, since)) = guard.as_ref() {
+                if since.elapsed() < std::time::Duration::from_secs(1) {
+                    return Ok(manager.clone());
+                }
             }
         }
         let manager = Manager::RequestAsync()?.join()?;
         if let Ok(mut guard) = MANAGER.lock() {
-            *guard = Some(manager.clone());
+            *guard = Some((manager.clone(), std::time::Instant::now()));
         }
         Ok(manager)
     }

@@ -60,6 +60,9 @@ pub struct Settings {
     /// `expandedStyle` y solo valía para la abierta: el alias deja leer un archivo antiguo.
     #[serde(alias = "expandedStyle")]
     pub island_style: CornerStyle,
+    /// Material de la isla: cristal líquido (translúcido, con desenfoque del escritorio) en lugar de negro sólido.
+    /// Solo vale con el estilo flotante: con muescas, las esquinas invertidas no casan con un material translúcido.
+    pub glass: bool,
     /// Avisar cuando una aplicación usa el micrófono o la cámara.
     pub notify_privacy: bool,
     /// Avisar de las descargas del navegador (inicio y fin, con la velocidad).
@@ -108,6 +111,8 @@ pub struct Settings {
     pub notify_brightness: bool,
     /// Mostrar el uso de CPU y memoria en la vista de inicio.
     pub home_stats: bool,
+    /// Página «Baterías» del carrusel: portátil y dispositivos Bluetooth conectados que informen su carga.
+    pub home_batteries: bool,
     /// Buscar letras sincronizadas en LRCLIB (envía título y artista).
     pub lyrics: bool,
     /// Mostrar en la isla las notificaciones de otras aplicaciones (Teams,
@@ -134,6 +139,7 @@ impl Default for Settings {
             always_on_top: true,
             collapsed_style: CollapsedStyle::Pill,
             island_style: CornerStyle::Notch,
+            glass: false,
             notify_privacy: true,
             notify_downloads: true,
             audio_visualizer: false,
@@ -158,6 +164,7 @@ impl Default for Settings {
             notify_focus: true,
             notify_brightness: true,
             home_stats: true,
+            home_batteries: true,
             lyrics: true,
             app_notifications: false,
             notification_apps: Vec::new(),

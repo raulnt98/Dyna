@@ -290,22 +290,38 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
    para que no haya contenido que se corte a medio fundir. Solo opacidad, desenfoque
    y escala: un desplazamiento se percibe como un salto sobre una píldora que ya se
    está redimensionando. */
-.notice-panel-enter-active { transition: opacity .36s cubic-bezier(.32,.72,0,1) .08s, filter .36s cubic-bezier(.32,.72,0,1) .08s; }
-.notice-panel-enter-from { opacity: 0; filter: blur(8px); }
+/* Los avisos entran despacio: la isla crece en ~0,64 s y el contenido empieza a asomar cuando ya va por la mitad, con
+   menos desenfoque (6 px) que antes. Con 0,36 s y 8 px se sentía como un golpe. */
+.notice-panel-enter-active { transition: opacity .55s cubic-bezier(.32,.72,0,1) .16s, filter .55s cubic-bezier(.32,.72,0,1) .16s; }
+.notice-panel-enter-from { opacity: 0; filter: blur(6px); }
 /* Al retirarse, el contenido se desenfoca y se apaga desde el primer fotograma (ease-out:
    la mayor parte del cambio ocurre al principio) y termina antes de que la isla acabe
    de cerrarse (0,46 s; con 0,34 s y un fundido de 0,2 s se sentía brusco), así no queda nada nítido encogiéndose. */
-.notice-panel-leave-active { transition: opacity .34s cubic-bezier(.32,.72,0,1), filter .34s cubic-bezier(.32,.72,0,1), transform .4s cubic-bezier(.32,.72,0,1); }
-.notice-panel-leave-to { opacity: 0; filter: blur(7px); transform: scale(.97); }
-.np-lead { transition: transform .6s cubic-bezier(.32,.72,0,1) .08s; }
+.notice-panel-leave-active { transition: opacity .46s cubic-bezier(.32,.72,0,1), filter .46s cubic-bezier(.32,.72,0,1), transform .52s cubic-bezier(.32,.72,0,1); }
+.notice-panel-leave-to { opacity: 0; filter: blur(5px); transform: scale(.98); }
+.np-lead { transition: transform .7s cubic-bezier(.32,.72,0,1) .16s; }
 .notice-panel-enter-from .np-lead { transform: scale(.7); }
-.np-copy > * { transition: opacity .42s cubic-bezier(.32,.72,0,1) .17s, filter .42s cubic-bezier(.32,.72,0,1) .17s; }
-.np-copy > :nth-child(n+2) { transition-delay: .24s; }
+.np-copy > * { transition: opacity .55s cubic-bezier(.32,.72,0,1) .26s, filter .55s cubic-bezier(.32,.72,0,1) .26s; }
+.np-copy > :nth-child(n+2) { transition-delay: .34s; }
 .notice-panel-enter-from .np-copy > * { opacity: 0; filter: blur(5px); }
-.np-bar { transition: opacity .42s cubic-bezier(.32,.72,0,1) .26s; }
+.np-bar { transition: opacity .55s cubic-bezier(.32,.72,0,1) .38s; }
 .notice-panel-enter-from .np-bar { opacity: 0; }
+/* Selector de salida de audio: misma curva y mismo espíritu que un aviso. El reproductor se retira con un fundido
+   (clases en TheIsland.vue) y el selector entra con opacidad y un desenfoque leve, un poco después; cada fila
+   asoma escalonada (`--i`). Al cerrarse hace lo contrario, un poco más rápido. */
+.picker-enter-active { transition: opacity .45s cubic-bezier(.32,.72,0,1) .14s, filter .45s cubic-bezier(.32,.72,0,1) .14s; }
+.picker-enter-from { opacity: 0; filter: blur(6px); }
+.picker-leave-active { transition: opacity .45s cubic-bezier(.32,.72,0,1), filter .45s cubic-bezier(.32,.72,0,1); }
+.picker-leave-to { opacity: 0; filter: blur(6px); }
+/* Al cerrarse es el espejo de la entrada, a la misma velocidad (~0,6 s en total): las filas se van en orden inverso
+   (la última primero), con la misma duración que al entrar, y el reproductor vuelve 200 ms después (en TheIsland.vue)
+   para que no se crucen. */
+.picker-leave-active .picker-item { transition: opacity .5s cubic-bezier(.32,.72,0,1) calc((3 - var(--i, 0)) * .04s), filter .5s cubic-bezier(.32,.72,0,1) calc((3 - var(--i, 0)) * .04s); }
+.picker-leave-to .picker-item { opacity: 0; filter: blur(4px); }
+.picker-item { transition: opacity .5s cubic-bezier(.32,.72,0,1) calc(.24s + var(--i, 0) * .06s), filter .5s cubic-bezier(.32,.72,0,1) calc(.24s + var(--i, 0) * .06s), background-color .15s, color .15s; }
+.picker-enter-from .picker-item { opacity: 0; filter: blur(4px); }
 .np-wave.is-bar { height: 13px; }
-.np-wave { flex: none; margin-left: 2px; transition: opacity .4s ease .3s; }
+.np-wave { flex: none; margin-left: 2px; transition: opacity .5s ease .42s; }
 .notice-panel-enter-from .np-wave { opacity: 0; }
 /* El contenido de la isla abierta se retira antes de que ella se cierre. Absoluto
    mientras sale, para que el que entra no se desplace por culpa del que se va. */
@@ -314,9 +330,9 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
    propiedades, así que la salida no se veía. El selector doble le gana en especificidad
    a la regla de `.island-content` que viene después. Arranca en el primer fotograma del
    cierre y termina antes de que la isla acabe de encogerse. */
-.island-content.content-leave-active { position: absolute; top: 0; left: 0; right: 0; animation: content-out .16s ease-out both; }
-.island-collapsed.collapsed-leave-active { animation: content-out .14s ease-out both; }
-@keyframes content-out { from { opacity: 1; filter: blur(0); } to { opacity: 0; filter: blur(9px); } }
+.island-content.content-leave-active { position: absolute; top: 0; left: 0; right: 0; animation: content-out .28s ease-out both; }
+.island-collapsed.collapsed-leave-active { animation: content-out .26s ease-out both; }
+@keyframes content-out { from { opacity: 1; filter: blur(0); } to { opacity: 0; filter: blur(6px); } }
 
 /* --- Cambio de pista --- */
 /* La carátula gira y se desenfoca al salir, y la nueva entra girando al revés
@@ -339,6 +355,13 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 @keyframes art-flash { 0% { opacity: 0; } 22% { opacity: .85; } 100% { opacity: 0; } }
 /* Texto: se desenfoca y se desvanece en el sitio, sin desplazarse. Va por orden
    (sale uno, entra el otro), así que cada mitad dura poco. */
+/* Cambio de página de la isla abierta (rueda del ratón): sale en 0,28 s y la nueva entra en 0,42 s con la curva de iOS, con
+   un desenfoque leve y una escala casi imperceptible. Antes usaba `txt-swap` (0,17 s cada una), pensada para cambiar un texto
+   y demasiado seca para una página entera. */
+.page-swap-leave-active { transition: opacity .28s cubic-bezier(.32,.72,0,1), filter .28s cubic-bezier(.32,.72,0,1), transform .28s cubic-bezier(.32,.72,0,1); }
+.page-swap-enter-active { transition: opacity .42s cubic-bezier(.32,.72,0,1), filter .42s cubic-bezier(.32,.72,0,1), transform .5s cubic-bezier(.32,.72,0,1); }
+.page-swap-leave-to { opacity: 0; filter: blur(5px); transform: scale(.985); }
+.page-swap-enter-from { opacity: 0; filter: blur(6px); transform: scale(.985); }
 .txt-swap-enter-active, .txt-swap-leave-active { transition: opacity .17s ease, filter .17s ease; }
 .txt-swap-enter-from, .txt-swap-leave-to { opacity: 0; filter: blur(5px); }
 /* Fondo tintado y muescas: fundido cruzado. Con animación y no con transición porque

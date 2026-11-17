@@ -1,6 +1,6 @@
 [package]
 name = "dynamic-island"
-version = "0.4.3"
+version = "0.5.0"
 description = "Dynamic Island para escritorio Windows"
 authors = ["Raul Nuñez"]
 license = "MIT"
@@ -27,6 +27,10 @@ png = "0.18"
 # la foto de perfil de los avisos (ver avatars.rs). `bundled` compila SQLite
 # dentro de la app: no depende de ninguna DLL del sistema.
 rusqlite = { version = "0.37", features = ["bundled"] }
+# `IIterable` para pasar la lista de propiedades adicionales al enumerar dispositivos (batteries.rs).
+windows-collections = "0.3"
+# La macro `interface` (IPolicyConfig en outputs.rs) genera rutas `windows_core::…`, así que la crate tiene que estar a la vista.
+windows-core = "0.62"
 windows = { version = "0.62", features = [
     "Foundation",
     "Media_Control",
@@ -39,6 +43,11 @@ windows = { version = "0.62", features = [
     "Foundation_Collections",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
+    # Salidas de audio con nombre (outputs.rs): el nombre amistoso del dispositivo y su lectura como texto.
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
     "Win32_System_Com",
     "Win32_Foundation",
     # SetWindowPos: mueve y redimensiona la isla en una sola operación.
@@ -61,6 +70,9 @@ windows = { version = "0.62", features = [
     # (ver bluetooth.rs).
     # Ubicación actual para el tiempo (weather.rs).
     "Devices_Geolocation",
+    # Nodos de dispositivo y sus propiedades: la batería de los dispositivos Bluetooth (batteries.rs).
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
     "Devices_Bluetooth",
     "Devices_Enumeration",
     # Unidades extraíbles (usb.rs), el panel del portátil (brightness.rs), las

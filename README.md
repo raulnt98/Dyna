@@ -33,6 +33,16 @@ Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
 
+### Novedades de la 0.5.0
+
+- **Cristal líquido (beta):** un material nuevo para la isla flotante (Ajustes → Isla → Material), translúcido, con **desenfoque real** (7 px) del escritorio de detrás, colores intensificados, un filo de luz y un velo que se adapta al fondo. Mientras está activo, la isla no sale en capturas de pantalla ni al compartir pantalla.
+- **Reproductor:** una **estrella de favoritos** a la izquierda de los controles (una lista local, no se sincroniza con el reproductor) y un botón a la derecha que abre un selector de **salida de audio** con iconos por tipo (auriculares, notebook, televisor, monitor, altavoz) y animación de apertura y cierre.
+- **Página de baterías** en la isla abierta: el notebook y los dispositivos Bluetooth conectados que informen su carga, con anillos.
+- **Rueda del ratón:** con la isla abierta cambia de página (abajo la siguiente, arriba la anterior). Se quitaron las flechas de navegación.
+- **Píldora cerrada sin música:** con el tiempo activado enseña la hora y el tiempo («12:35 | ☀ 24°»).
+- **Transiciones más suaves** en los avisos del sistema, las notificaciones, la presentación de canción y el cambio de página; los avisos desplegados quedan centrados, y «Cargador Desconectado» lleva mayúsculas.
+- **Arreglo:** el botón de reproducir y pausar no cambiaba de icono en algunos casos (el estado de reproducción llegaba desfasado).
+
 ### Novedades de la 0.4.3
 
 - **Mucho menos consumo con música sonando:** la carátula ya no se reenvía a la ventana cada vez que avanza la posición (cuatro veces por segundo), y el gestor de medios de Windows se reutiliza en lugar de pedir uno nuevo cada 250 ms, lo que acumulaba cientos de hilos.
@@ -568,6 +578,7 @@ confirmación.
 | Siempre visible | Mantiene o no la isla por encima de otras ventanas. |
 | Vista minimizada | Cómo se ve la isla cerrada: **píldora** (la de siempre) o **pestaña mínima**, una leve lengüeta de 48 × 8 px pegada al borde que casi no tapa las pestañas del navegador. Un clic la abre y otro la cierra. Los avisos siguen apareciendo igual. |
 | Estilo de la isla | Dos estilos completos, para la isla **cerrada y abierta a la vez** y con el mismo tamaño: **con muescas** (cuelga del borde de la pantalla y se funde con él, con las esquinas invertidas) o **flotante redondeada** (una cápsula suelta, 6 px por debajo del borde y sin muescas). En la pestaña mínima, que es solo una lengüeta, el estilo flotante solo quita las muescas. Acercar el ratón a la franja de arriba también abre la isla. |
+| Material | **Sólido** (negro) o **cristal líquido (beta)**: translúcido, con un filo de luz y **desenfoque real del escritorio** (fijo en 7 px). Solo con el estilo flotante redondeada. Para desenfocar, la app lee los píxeles del escritorio detrás de la isla (en memoria, sin guardarlos ni enviarlos) y, mientras está activo, **la isla no aparece en capturas de pantalla ni al compartir pantalla**. |
 | Pantalla | En qué pantalla cuelga la isla: la principal o cualquiera de las conectadas. Si la elegida se desconecta, vuelve a la principal. |
 | Visualizador de audio real | La onda de la isla sigue el sonido que sale por los altavoces en lugar de animarse sola. Ver [Visualizador de audio](#visualizador-de-audio-real). Apagado por defecto. |
 | Tiempo en la vista de inicio | Temperatura y estado del cielo junto a la fecha, para la **ciudad** que escribas debajo. Envía esa ciudad a Open-Meteo. Apagado por defecto. |
@@ -633,7 +644,7 @@ fecha** (abierta), con segundos; se pueden quitar en ajustes.
 
 Abierta, la isla es un **carrusel**: dos indicadores laterales rotan entre páginas, dando la vuelta por los extremos. Si suena algo, **el
 reproductor es la página principal**: la isla se abre en él, y si te vas a otra página y la dejas sin tocar unos segundos, vuelve sola.
-Sin música, se abre en la hora. Las flechas están siempre en el mismo sitio, en los extremos de la fila de abajo, sea cual sea la página. Las páginas, en orden:
+Sin música, se abre en la hora. Se cambia de página con la **rueda del ratón** (abajo, la siguiente; arriba, la anterior). Las páginas, en orden:
 
 - **Reproductor** (solo si hay algo en reproducción).
 

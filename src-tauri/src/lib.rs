@@ -17,6 +17,9 @@ mod sysstats;
 mod toasts;
 mod usb;
 mod volume;
+mod glass;
+mod outputs;
+mod batteries;
 mod weather;
 
 use settings::{Position, Settings};
@@ -672,14 +675,15 @@ fn reapply_transparency(hwnd: windows::Win32::Foundation::HWND) {
     };
     unsafe {
         let corner = CreateRectRgn(0, 0, 1, 1);
+        let blur_region = corner;
         let blur = DWM_BLURBEHIND {
             dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
             fEnable: true.into(),
-            hRgnBlur: corner,
+            hRgnBlur: blur_region,
             fTransitionOnMaximized: false.into(),
         };
         let _ = DwmEnableBlurBehindWindow(hwnd, &blur);
-        let _ = DeleteObject(HGDIOBJ(corner.0));
+        let _ = DeleteObject(HGDIOBJ(blur_region.0));
         let _ = RedrawWindow(
             Some(hwnd),
             None,
@@ -1007,8 +1011,11 @@ pub fn run() {
             toasts_access,
             toasts_open_privacy,
             power_state,
+            batteries::batteries_list,
             monitors_list,
             weather::weather_current,
+            outputs::audio_outputs,
+            outputs::audio_output_set,
             weather::weather_search,
             weather::weather_locate_here,
             speedtest::speedtest_run,
@@ -1197,6 +1204,7 @@ pub fn run() {
             // Avisos que se sondean en su propio módulo: unidades USB, teclas de
             // bloqueo, modo de concentración y brillo del portátil.
             start_gap_watch(app.handle().clone());
+            glass::start(app.handle().clone());
             audio::start(app.handle().clone());
             downloads::start(app.handle().clone());
             privacy::start(app.handle().clone());

@@ -13,7 +13,7 @@ import { accentFromArtwork } from "@/lib/artColor";
 import { clearAudioLevels, pushAudioLevels } from "@/lib/audioFeed";
 import { useSmoothPosition } from "@/lib/clock";
 import { useLyrics } from "@/lib/lyrics";
-import { noticeWidth, useNotifications } from "@/lib/notifications";
+import { homePillWidth, noticeWidth, useNotifications } from "@/lib/notifications";
 import { useSystemPower } from "@/lib/power";
 import { tidyToast, toastMediaKind, useAudioLevels, useBluetoothEvents, useBrightnessEvents, useDownloadEvents, usePrivacyEvents, useSpeedtestEvents, useFocusEvents, useLockKeyEvents, useUsbEvents, useLowBatteryEvents, useToastEvents, useInternetEvents, useVolumeEvents, useWifiEvents } from "@/lib/systemEvents";
 import type { Activity } from "@/lib/activities";
@@ -75,6 +75,12 @@ type CollapsedStyle = "pill" | "tab";
 type IslandStyle = "notch" | "round";
 const collapsedStyle = ref<CollapsedStyle>("pill");
 const islandStyle = ref<IslandStyle>("notch");
+/** Material de cristal líquido: solo se aplica con el estilo flotante (ver `glass` en settings.rs). */
+const glass = ref(false);
+/** Imagen del escritorio ya desenfocada que Rust manda para el cristal (`glass.rs`); vacía si no hay. */
+const glassImage = ref("");
+/** Velo del cristal, 0–1: sube con la luminosidad del fondo para que el texto blanco se lea sobre fondos claros. */
+const glassVeil = ref(0.38);
 /**
  * Color del anillo que suaviza el borde del estilo flotante: siempre negro. Antes era el del escritorio
  * (muestreado por Rust) y sobre un escritorio claro salía un aro blanco que se veía como un borde de otro color.
@@ -106,7 +112,7 @@ useSystemPower((state) => {
           plugged: false,
           percent: state.percent,
           deployed: true,
-          title: "Cargador desconectado",
+          title: "Cargador Desconectado",
           subtitle: `${state.percent}% de batería`,
           level: state.percent,
         },
@@ -351,7 +357,7 @@ type SpeedState = {
 };
 const speed = ref<SpeedState>({ status: "idle", phase: null, mbps: 0, down: null, ping: null, reason: null });
 /** Página de la vista de inicio: la hora en el centro; CPU y RAM a un lado, la velocidad al otro. */
-const homePage = ref<"clock" | "system" | "speed" | "music">("clock");
+const homePage = ref<"clock" | "system" | "batteries" | "speed" | "music">("clock");
 /** Megabits legibles, con coma decimal: «538», «79,2». */
 const formatMbps = (value: number) => (value >= 100 ? value.toFixed(0) : value.toFixed(1).replace(".", ","));
 /**
@@ -643,7 +649,9 @@ const targetSize = computed(() => {
       ? { width: noticeWidth(notice.value.label), height: COMPACT.height }
       : collapsedStyle.value === "tab"
         ? TAB
-        : COMPACT;
+        : displayMode.value === "home" && weather.value
+          ? { width: homePillWidth(homeSeconds.value, `${weather.value.temp}°`), height: COMPACT.height }
+          : COMPACT;
   }
   return lyricsOpen.value && lyricsAvailable.value ? WITH_LYRICS : EXPANDED;
 });
@@ -673,8 +681,8 @@ function resizeWindow(size: { width: number; height: number }, durationMs?: numb
  * debe durar lo mismo que la píldora.
  */
 const MORPH_USER_MS = 580;
-const MORPH_NOTICE_IN_MS = 400;
-const MORPH_NOTICE_OUT_MS = 460;
+const MORPH_NOTICE_IN_MS = 640;
+const MORPH_NOTICE_OUT_MS = 680;
 const morphMs = ref(MORPH_USER_MS);
 let hadNotice = false;
 
@@ -927,6 +935,79 @@ watch(
     if (notice.value?.kind === "track") presentTrack();
   },
 );
+/**
+ * Favoritos de la isla: una lista local de canciones («título|artista»). SMTC no permite marcar «me gusta» en el
+ * reproductor, así que la estrella guarda aquí y no se sincroniza con Spotify ni con YouTube Music. Vive en
+ * `localStorage` de la ventana de la isla (el acceso va con try/catch: puede fallar o venir vacío) y se limita a
+ * 1000 entradas, las más recientes.
+ */
+const FAVORITES_KEY = "island-favorites";
+const MAX_FAVORITES = 1000;
+const favorites = ref<string[]>([]);
+try {
+  const stored = JSON.parse(window.localStorage.getItem(FAVORITES_KEY) ?? "[]");
+  if (Array.isArray(stored)) favorites.value = stored.filter((x) => typeof x === "string").slice(-MAX_FAVORITES);
+} catch {
+  /* sin almacenamiento: la lista empieza vacía */
+}
+const favoriteKey = computed(() => `${media.state.value.title}|${media.state.value.artist}`);
+const isFavorite = computed(() => media.state.value.title !== "" && favorites.value.includes(favoriteKey.value));
+function toggleFavorite() {
+  if (media.state.value.title === "") return;
+  const key = favoriteKey.value;
+  favorites.value = favorites.value.includes(key) ? favorites.value.filter((x) => x !== key) : [...favorites.value, key].slice(-MAX_FAVORITES);
+  try {
+    window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites.value));
+  } catch {
+    /* sin almacenamiento: queda hasta cerrar la isla */
+  }
+}
+
+/** Salidas de audio y su selector (ver outputs.rs). Se leen al abrir la isla y al abrir el selector. */
+const outputs = ref<{ id: string; name: string; kind: string; isDefault: boolean }[] | null>(null);
+const outputsOpen = ref(false);
+async function loadOutputs() {
+  const list = await invokeResult<{ id: string; name: string; kind: string; isDefault: boolean }[]>("audio_outputs");
+  if (list) outputs.value = list;
+}
+async function toggleOutputs() {
+  outputsOpen.value = !outputsOpen.value;
+  if (outputsOpen.value) await loadOutputs();
+}
+async function pickOutput(id: string) {
+  outputsOpen.value = false;
+  await invokeResult<boolean>("audio_output_set", { id });
+  await loadOutputs();
+}
+watch(expanded, (open) => {
+  if (open) void loadOutputs();
+  else outputsOpen.value = false;
+});
+watch(homePage, () => {
+  outputsOpen.value = false;
+});
+
+/** Página «Baterías» del carrusel (ajuste `homeBatteries`) y su última lectura; `null` hasta tener la primera. */
+const showHomeBatteries = ref(true);
+const batteries = ref<{ id: string; name: string; kind: string; percent: number; charging: boolean }[] | null>(null);
+/** Se consultan solo con su página a la vista, al abrirla y cada 20 s. */
+let batteriesTimer: number | undefined;
+watch(
+  () => expanded.value && showHomeBatteries.value && homePage.value === "batteries",
+  (visible) => {
+    if (batteriesTimer !== undefined) window.clearInterval(batteriesTimer);
+    batteriesTimer = undefined;
+    if (!visible) return;
+    const read = async () => {
+      const list = await invokeResult<{ id: string; name: string; kind: string; percent: number; charging: boolean }[]>("batteries_list");
+      if (list) batteries.value = list;
+    };
+    void read();
+    batteriesTimer = window.setInterval(read, 20_000);
+  },
+  { immediate: true },
+);
+
 /** Mostrar CPU y memoria en la vista de inicio (ajuste `homeStats`). */
 const showHomeStats = ref(true);
 /** Última lectura de CPU y memoria; `null` hasta tener una con sentido. */
@@ -965,8 +1046,10 @@ onMounted(async () => {
     position?: Alignment;
     collapsedStyle?: CollapsedStyle;
     islandStyle?: IslandStyle;
+    glass?: boolean;
     homeSeconds?: boolean;
     homeStats?: boolean;
+    homeBatteries?: boolean;
     audioVisualizer?: boolean;
     weather?: boolean;
     weatherCity?: string;
@@ -980,6 +1063,7 @@ onMounted(async () => {
   if (stored?.notifications !== undefined) notificationsOn.value = stored.notifications;
   if (stored?.notifyTrack !== undefined) trackNoticeOn.value = stored.notifyTrack;
   if (stored?.homeStats !== undefined) showHomeStats.value = stored.homeStats;
+  if (stored?.homeBatteries !== undefined) showHomeBatteries.value = stored.homeBatteries;
   if (stored?.audioVisualizer !== undefined) audioOn.value = stored.audioVisualizer;
   if (stored?.weather !== undefined) weatherOn.value = stored.weather;
   if (stored?.weatherCity !== undefined) weatherCity.value = stored.weatherCity;
@@ -988,6 +1072,7 @@ onMounted(async () => {
   if (stored?.position) alignment.value = stored.position;
   if (stored?.collapsedStyle) collapsedStyle.value = stored.collapsedStyle;
   if (stored?.islandStyle) islandStyle.value = stored.islandStyle;
+  if (stored?.glass !== undefined) glass.value = stored.glass;
 
   // El primer intento de redimensionar ocurre antes de que la API de Tauri
   // esté cargada, así que se repite aquí ya con el módulo disponible.
@@ -1000,6 +1085,11 @@ onMounted(async () => {
     // Rust avisa cuando el cursor está en la franja de encima de la isla: esa franja
     // queda fuera de la ventana y la página no ve el ratón sobre ella. Mientras esté
     // ahí, la isla no se recoge; al salir de ella sin volver a la isla, sí.
+    await listen<{ uri: string; luma: number }>("island://glass", (event) => {
+      glassImage.value = event.payload.uri;
+      // 0,30 sobre un fondo oscuro, hasta 0,62 sobre uno blanco.
+      glassVeil.value = 0.3 + 0.32 * Math.min(1, event.payload.luma / 255);
+    });
     await listen<{ inside: boolean }>("island://gap", (event) => {
       inGap = event.payload.inside;
       if (inGap) {
@@ -1020,8 +1110,10 @@ onMounted(async () => {
       position?: Alignment;
       collapsedStyle?: CollapsedStyle;
       islandStyle?: IslandStyle;
+      glass?: boolean;
       homeSeconds?: boolean;
       homeStats?: boolean;
+      homeBatteries?: boolean;
       audioVisualizer?: boolean;
       weather?: boolean;
       weatherCity?: string;
@@ -1034,6 +1126,7 @@ onMounted(async () => {
       if (event.payload?.notifications !== undefined) notificationsOn.value = event.payload.notifications;
       if (event.payload?.notifyTrack !== undefined) trackNoticeOn.value = event.payload.notifyTrack;
       if (event.payload?.homeStats !== undefined) showHomeStats.value = event.payload.homeStats;
+      if (event.payload?.homeBatteries !== undefined) showHomeBatteries.value = event.payload.homeBatteries;
       if (event.payload?.audioVisualizer !== undefined) audioOn.value = event.payload.audioVisualizer;
       if (event.payload?.weather !== undefined) weatherOn.value = event.payload.weather;
       if (event.payload?.weatherCity !== undefined) weatherCity.value = event.payload.weatherCity;
@@ -1043,6 +1136,7 @@ onMounted(async () => {
       if (event.payload?.position) alignment.value = event.payload.position;
       if (event.payload?.collapsedStyle) collapsedStyle.value = event.payload.collapsedStyle;
       if (event.payload?.islandStyle) islandStyle.value = event.payload.islandStyle;
+      if (event.payload?.glass !== undefined) glass.value = event.payload.glass;
     });
   } catch {
     // Fuera de Tauri no hay eventos que escuchar.
@@ -1081,7 +1175,7 @@ function scrubTo(ratio: number) {
        Sin relleno superior: cuelga del borde de la pantalla y su primer píxel es
        también el primero de la ventana. -->
   <div class="island-stage box-border grid h-screen w-screen items-start pt-0" :class="stageAlignment">
-    <div class="island-wrap" :class="{ 'expanded-round': islandStyle === 'round', 'collapsed-round': islandStyle === 'round' }" :style="{ '--morph': `${morphMs}ms`, '--art-accent': artAccent || undefined, '--island-ring': ring }">
+    <div class="island-wrap" :class="{ 'expanded-round': islandStyle === 'round', 'collapsed-round': islandStyle === 'round', 'is-glass': glass && islandStyle === 'round' }" :style="{ '--morph': `${morphMs}ms`, '--art-accent': artAccent || undefined, '--island-ring': ring, '--glass-image': glassImage ? `url(${glassImage})` : undefined, '--glass-veil': glassVeil }">
       <!-- Tinte de la carátula sobre cada muesca. El relleno base de las
            muescas es negro, y sin esto quedan como dos parches oscuros a los
            lados de una isla coloreada. -->
@@ -1136,6 +1230,14 @@ function scrubTo(ratio: number) {
       :weather="weather"
       :speedtest-enabled="speedtestOn"
       :system-enabled="showHomeStats"
+      :is-favorite="isFavorite"
+      :outputs="outputs"
+      :outputs-open="outputsOpen"
+      @toggle-favorite="toggleFavorite"
+      @outputs-toggle="toggleOutputs"
+      @output-pick="pickOutput"
+      :batteries-enabled="showHomeBatteries"
+      :batteries="batteries"
       :speed="speed"
       v-model:home-page="homePage"
       :carousel="true"
@@ -1385,6 +1487,37 @@ body,
    al borde, no lo lleva. */
 .island-wrap.collapsed-round .island:not(.is-tab) {
   box-shadow: 0 0 0 2px var(--island-ring) !important;
+}
+
+/* Cristal líquido: sobre el desenfoque de Windows que Rust limita a la forma de la isla (`reapply_transparency`), la isla es un velo translúcido con
+   luz propia: reflejo en el borde de arriba, filo claro alrededor y un brillo suave en la esquina. Sin anillo
+   negro (el de arriba es para el material sólido): el borde es la propia luz. Solo con el estilo flotante. */
+.island-wrap.is-glass .island:not(.is-tab) {
+  /* La imagen del escritorio cubre siempre el rectángulo de la isla más grande con sus muescas (540 × 108 px) y la isla está centrada:
+     con `center top` cada tamaño enseña justo la porción que tiene detrás, también durante la animación. */
+  /* De arriba abajo: brillo, velo (un degradado liso: en un `background` con varias capas solo la última puede ser un
+     color) y, al fondo, el escritorio ya desenfocado que manda Rust (`glass.rs`). Sin esa
+     imagen (desenfoque 0, o aún sin la primera) queda solo el velo sobre la transparencia. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0) 40%),
+    linear-gradient(rgba(18, 20, 24, var(--glass-veil, .38)), rgba(18, 20, 24, var(--glass-veil, .38))),
+    var(--glass-image, none) center top / 540px 108px no-repeat !important;
+  border-color: transparent !important;
+  /* El filo: luz fuerte en la esquina de arriba a la izquierda y más suave abajo a la derecha, como el borde
+     de un cristal grueso, más un aro tenue por todo el contorno. */
+  box-shadow:
+    inset 1.5px 1.5px 1px -1px rgba(255,255,255,.80),
+    inset -1.5px -1.5px 1px -1px rgba(255,255,255,.42),
+    inset 0 0 0 1px rgba(255,255,255,.13),
+    inset 0 14px 22px -16px rgba(255,255,255,.35) !important;
+  text-shadow: 0 1px 8px rgba(0,0,0,.35);
+}
+
+/* El fondo tintado con la carátula (`.art-backdrop`) lleva su propia imagen y su velo oscuro. No se le puede bajar la
+   opacidad al contenedor (su animación `art-fade` la fija), así que con cristal se aligera por capas. */
+.island-wrap.is-glass .art-backdrop::before { opacity: .35; }
+.island-wrap.is-glass .art-backdrop::after {
+  background: linear-gradient(180deg, rgba(5,5,6,.14), rgba(5,5,6,.30));
 }
 
 /* Pestaña mínima: la muesca se reduce a 5 px, porque una de 14 px colgaría por

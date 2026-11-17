@@ -54,6 +54,21 @@ export function noticeWidth(label: string): number {
   return Math.round(Math.min(260, Math.max(116, estimated)));
 }
 
+/**
+ * Ancho de la píldora cerrada de la vista de inicio (sin música): la hora sola, o la hora, una raya y el tiempo
+ * («12:35 | ☀ 24°»). Como `noticeWidth`, **se estima**: la ventana nativa se redimensiona desde Rust antes de que el CSS
+ * pinte, y la isla (`TheIsland.vue`) y su ventana (`IslandApp.vue`) tienen que usar el mismo número.
+ *
+ * `seconds` dice si la hora lleva segundos (8 caracteres en lugar de 5) y `temp` es el texto de la temperatura
+ * («24°») o `null` si no hay tiempo. A 12 px y peso 650 una cifra ocupa unos 7,4 px.
+ */
+export function homePillWidth(seconds: boolean, temp: string | null): number {
+  const time = (seconds ? 8 : 5) * 7.4;
+  // Hueco + raya + hueco + icono + hueco + temperatura.
+  const weather = temp ? 10 + 1 + 10 + 14 + 5 + temp.length * 7.4 : 0;
+  return Math.round(Math.max(116, 28 + time + weather));
+}
+
 export function useNotifications() {
   /** Aviso en pantalla, o `null` si la isla muestra su contenido normal. */
   const current = ref<Notice | null>(null);
