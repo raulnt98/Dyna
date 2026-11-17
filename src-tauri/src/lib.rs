@@ -1,14 +1,26 @@
+mod audio;
 mod avatars;
+mod bluetooth;
+mod brightness;
+mod downloads;
+mod focus;
+mod keys;
 mod lyrics;
 mod network;
 mod power;
+mod privacy;
 mod settings;
 mod shell_icon;
 mod smtc;
+mod speedtest;
+mod sysstats;
 mod toasts;
+mod usb;
 mod volume;
+mod weather;
 
 use settings::{Position, Settings};
+use bluetooth::BLUETOOTH_EVENT;
 use network::{InternetState, INTERNET_EVENT, WIFI_EVENT};
 use power::{LOW_BATTERY_EVENT, POWER_EVENT};
 use volume::VOLUME_EVENT;
@@ -38,10 +50,35 @@ const SIDE_MARGIN: f64 = WINDOW_PADDING + OVERSHOOT_MARGIN;
 /// Tamaño actual de la isla, para recolocarla al cambiar los ajustes.
 static ISLAND_SIZE: std::sync::Mutex<(f64, f64)> = std::sync::Mutex::new((116.0, 34.0));
 
+/// Separación con el borde de la pantalla de la vista expandida redondeada, en píxeles
+/// lógicos. La misma medida que `margin-top` de `.island-wrap.expanded-round` en
+/// IslandApp.vue: si cambias una, cambia la otra.
+const ROUND_GAP: f64 = 6.0;
+
+/// Evento: el cursor entra o sale de la franja entre el borde de la pantalla y la isla
+/// (variantes redondeadas, que flotan). Esa franja queda fuera del recorte de la ventana, así
+/// que la página no recibe ningún evento de ratón sobre ella; se averigua desde aquí.
+const GAP_EVENT: &str = "island://gap";
+
+/// Evento: el color del escritorio alrededor de la isla, para el anillo que suaviza su borde.
+const BACKDROP_EVENT: &str = "island://backdrop";
+
+#[derive(Clone, serde::Serialize)]
+struct Backdrop {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct GapHover {
+    inside: bool,
+}
+
 /// Forma de la isla en un instante: lo que el recorte de la ventana dibuja.
 ///
 /// Además del tamaño lleva la muesca y el radio, porque en el CSS también
-/// cambian con el estado (14 px y 18 compacta, 22 y 24 expandida) y se animan
+/// cambian con el estado (14 px y 18 compacta, 22 y 18 expandida) y se animan
 /// con la misma curva que el ancho y el alto.
 #[derive(Clone, Copy, PartialEq)]
 struct Shape {
@@ -49,6 +86,11 @@ struct Shape {
     height: f64,
     notch: f64,
     radius: f64,
+    /// Radio de las esquinas de arriba (0 = rectas, de ellas nacen las muescas).
+    top_radius: f64,
+    /// Separación entre el borde de la pantalla y la isla (0 = pegada). Solo la
+    /// tiene la vista expandida redondeada, que flota en vez de colgar.
+    top_offset: f64,
 }
 
 impl Shape {
@@ -57,19 +99,39 @@ impl Shape {
     /// pasa de 40. Las medidas de muesca y radio replican las del CSS
     /// (`--notch` en IslandApp.vue y los `rounded-[…]` de TheIsland.vue).
     fn for_size(width: f64, height: f64) -> Shape {
-        let (notch, radius) = if height > 40.0 {
-            (22.0, 24.0)
+        // Un solo ajuste manda sobre la isla cerrada y la abierta: o las dos con muescas, o las dos flotantes.
+        let round = settings::current().island_style == settings::CornerStyle::Round;
+        let (round_expanded, round_collapsed) = (round, round);
+        let (notch, radius, top_radius, top_offset) = if height > 40.0 {
+            // Vista expandida: con el estilo redondeado no hay muescas y las
+            // esquinas de arriba se curvan como las de abajo.
+            if round_expanded {
+                (0.0, 18.0, 18.0, ROUND_GAP)
+            } else {
+                (22.0, 18.0, 0.0, 0.0)
+            }
         } else if height > 12.0 {
-            (14.0, 18.0)
+            // Píldora cerrada. Redondeada: sin muescas, las cuatro esquinas curvas (radio de media altura) y
+            // flotando como la expandida redondeada. Lo replica `.island-wrap.collapsed-round` (IslandApp.vue).
+            if round_collapsed {
+                (0.0, 17.0, 17.0, ROUND_GAP)
+            } else {
+                (14.0, 18.0, 0.0, 0.0)
+            }
+        } else if round_collapsed {
+            // Pestaña sin muescas: solo la lengüeta con las esquinas de abajo redondeadas, pegada al borde.
+            (0.0, 4.0, 0.0, 0.0)
         } else {
             // Pestaña: una muesca de 14 px colgaría por debajo de ella.
-            (5.0, 4.0)
+            (5.0, 4.0, 0.0, 0.0)
         };
         Shape {
             width,
             height,
             notch,
             radius,
+            top_radius,
+            top_offset,
         }
     }
 
@@ -80,6 +142,8 @@ impl Shape {
             height: mix(from.height, to.height),
             notch: mix(from.notch, to.notch),
             radius: mix(from.radius, to.radius),
+            top_radius: mix(from.top_radius, to.top_radius),
+            top_offset: mix(from.top_offset, to.top_offset),
         }
     }
 }
@@ -91,12 +155,15 @@ static DISPLAY: std::sync::Mutex<Shape> = std::sync::Mutex::new(Shape {
     height: 34.0,
     notch: 14.0,
     radius: 18.0,
+    top_radius: 0.0,
+    top_offset: 0.0,
 });
 
 /// Generación de la animación en curso: al cambiar, el hilo anterior se retira.
 static ANIM_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Duración del `.island-morph` del CSS, en segundos.
+/// Duración del `.island-morph` del CSS, en segundos, cuando la isla la abre o la
+/// cierra el usuario. Los avisos del sistema piden una más corta (ver `island_resize`).
 const MORPH_SECS: f64 = 0.58;
 
 /// `cubic-bezier(.22, 1, .36, 1)`, la curva de `.island-morph`: devuelve el
@@ -124,6 +191,120 @@ fn morph_ease(t: f64) -> f64 {
     bezier((low + high) / 2.0, y1, y2)
 }
 
+/// Región de la píldora construida fila a fila, con el círculo de cada esquina exacto.
+///
+/// `CreateRoundRectRgn` aproxima la esquina con una elipse de Bresenham que deja
+/// tramos planos y escalones desiguales: es lo que se veía «mordido». Aquí cada fila de
+/// píxeles se calcula con la circunferencia verdadera, de modo que los escalones son los
+/// mínimos posibles y simétricos entre las cuatro esquinas.
+///
+/// Un píxel solo entra si queda **entero** dentro de la forma (se evalúa su borde más
+/// exterior): un píxel a medias tiene el antialiasing del CSS, es decir, es medio
+/// transparente, y Windows pinta de pálido lo transparente en el borde de la región.
+/// Los costados rectos van a ras, como siempre. `left`/`right` son el borde izquierdo y
+/// el derecho (exclusivo) en píxeles; `bottom_r` y `top_r`, los radios de las esquinas
+/// de abajo y de arriba (0 = rectas) y `notch`, el tamaño de las muescas cóncavas (0 =
+/// sin ellas), todo en píxeles.
+///
+/// Las muescas entran en la misma cuenta: en cada fila de su altura el tramo se
+/// ensancha por los dos lados hasta el círculo del CSS (el que tiene el centro en la
+/// esquina inferior exterior de su cuadrado), con el mismo criterio de «píxel entero».
+/// Antes eran cuadrados menos elipses con holguras puestas a ojo (3 px recortados, círculo
+/// 2 px mayor), y esas holguras eran lo que dejaba la punta de la muesca «mordida».
+#[cfg(windows)]
+unsafe fn pill_region(
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+    bottom_r: f64,
+    top_r: f64,
+    notch: f64,
+) -> windows::Win32::Graphics::Gdi::HRGN {
+    use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, HGDIOBJ, RGN_OR};
+
+    let region = CreateRectRgn(0, 0, 0, 0);
+    // Filas seguidas con el mismo tramo se agrupan en un solo rectángulo.
+    let mut run: Option<(i32, i32, i32)> = None; // (x0, x1, y de inicio)
+    let emit = |run: (i32, i32, i32), end_y: i32| {
+        let rect = CreateRectRgn(run.0, run.2, run.1, end_y);
+        let _ = CombineRgn(Some(region), Some(region), Some(rect), RGN_OR);
+        let _ = DeleteObject(HGDIOBJ(rect.0));
+    };
+    for (index, span) in pill_spans(left, top, right, bottom, bottom_r, top_r, notch).into_iter().enumerate() {
+        let y = top + index as i32;
+        match run {
+            Some((x0, x1, _)) if (x0, x1) == span => {}
+            Some(previous) => {
+                emit(previous, y);
+                run = Some((span.0, span.1, y));
+            }
+            None => run = Some((span.0, span.1, y)),
+        }
+    }
+    if let Some(last) = run {
+        emit(last, bottom);
+    }
+    region
+}
+
+/// Tramo horizontal `(x0, x1)` (x1 exclusivo) de cada fila de píxeles de la forma, de
+/// `top` a `bottom`. Es la geometría pura de `pill_region`, aparte para poder comprobarla.
+fn pill_spans(
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+    bottom_r: f64,
+    top_r: f64,
+    notch: f64,
+) -> Vec<(i32, i32)> {
+    // Cuánto se mete el borde en una fila por el círculo de una esquina, o 0 si la fila
+    // queda fuera de la zona curva. `edge` es el borde del píxel que más se mete.
+    let inset = |edge: f64, center: f64, r: f64| -> f64 {
+        if r <= 0.0 {
+            return 0.0;
+        }
+        let dy = (edge - center).abs();
+        if dy >= r {
+            r
+        } else {
+            r - (r * r - dy * dy).sqrt()
+        }
+    };
+
+    let mut spans = Vec::with_capacity((bottom - top).max(0) as usize);
+    for y in top..bottom {
+        // Abajo, el borde que más se mete es el inferior del píxel; arriba, el superior.
+        let from_bottom = if ((y + 1) as f64) > bottom as f64 - bottom_r {
+            inset((y + 1) as f64, bottom as f64 - bottom_r, bottom_r)
+        } else {
+            0.0
+        };
+        let from_top = if (y as f64) < top as f64 + top_r {
+            inset(y as f64, top as f64 + top_r, top_r)
+        } else {
+            0.0
+        };
+        let cut = from_bottom.max(from_top).ceil() as i32;
+        let mut span = (left + cut, right - cut);
+        if notch > 0.5 {
+            // Distancia vertical del borde inferior del píxel al centro del círculo de la
+            // muesca (que está a `notch` por debajo del borde de arriba). Fuera de su
+            // altura no hay muesca.
+            let d = (top as f64 + notch) - (y + 1) as f64;
+            if d >= 0.0 {
+                let x_off = (notch * notch - d * d).max(0.0).sqrt();
+                let outer_left = (left as f64 - notch + x_off).ceil() as i32;
+                let outer_right = (right as f64 + notch - x_off).floor() as i32;
+                span = (span.0.min(outer_left), span.1.max(outer_right));
+            }
+        }
+        spans.push(span);
+    }
+    spans
+}
+
 /// Recorta la ventana a la forma de la isla.
 ///
 /// Píldora redondeada más las dos muescas cóncavas de las esquinas. No puede
@@ -139,62 +320,179 @@ unsafe fn set_island_region(
     shape: &Shape,
 ) {
     use windows::Win32::Graphics::Gdi::{
-        CombineRgn, CreateEllipticRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject,
-        SetWindowRgn, HGDIOBJ, RGN_DIFF, RGN_OR,
+        DeleteObject, SetWindowRgn, HGDIOBJ,
     };
 
     let to_px = |value: f64| (value * scale).round() as i32;
-    let Shape { width, height, notch, radius } = *shape;
+    let Shape { width, height, notch, radius, top_radius, top_offset } = *shape;
     let right = left + width;
     // `CreateRoundRectRgn` deja fuera su columna derecha, a diferencia de
     // `CreateRectRgn` (que usan las muescas): sin el +1 queda un hueco de un
     // píxel entre la píldora y la muesca derecha, que Windows pinta de claro
     // (línea vertical solo a la derecha). Un píxel hacia dentro en la base por
     // lo mismo; los costados van a ras.
-    let region = CreateRoundRectRgn(
-        to_px(left),
-        to_px(-radius),
-        to_px(right) + 1,
-        to_px(height) - 1,
-        to_px(radius * 2.0),
-        to_px(radius * 2.0),
+    // Estilo flotante (sin muescas, separado del borde): el recorte sube 1 px por todos los lados para dejar sitio a
+    // un anillo OPACO del color del fondo (`--island-ring`, ver `start_gap_watch`). El suavizado del borde se hace
+    // entre la isla y ese anillo, dos colores opacos, y el borde duro del recorte cae sobre el anillo, que es del
+    // color del escritorio y por tanto no se ve.
+    //
+    // Por qué no basta con dejar que el CSS suavice contra lo que haya detrás: un píxel a medias dentro de esta
+    // ventana NO se mezcla con el escritorio sino con **blanco** (medido en la app real: sobre un escritorio de 39 y
+    // una isla de 10, los píxeles del borde valían 89, 69 y 101, más claros que los dos). Sobre un fondo blanco ese
+    // fallo es invisible, que es por lo que una prueba con fondo blanco da por buena una solución que no lo es.
+    let g: i32 = if top_offset > 0.5 { 1 } else { 0 };
+    let region = pill_region(
+        to_px(left) - g,
+        to_px(top_offset) - g,
+        to_px(right) + g,
+        to_px(top_offset + height) - 1 + g,
+        radius * scale + g as f64,
+        top_radius * scale + g as f64,
+        notch * scale,
     );
-    // Cada muesca es un cuadrado junto al costado, al que se le quita el
-    // círculo centrado en su esquina inferior exterior (la máscara radial del CSS).
-    for (box_left, circle_cx) in [(left - notch, left - notch), (right, right + notch)] {
-        // Borde exterior de la muesca, tres píxeles hacia dentro: la forma
-        // cóncava acaba en un filo de menos de un píxel de ancho que el CSS
-        // pinta casi transparente pero la región incluye entero (punto blanco
-        // a la izquierda, línea vertical a la derecha).
-        let outer_left = if box_left < left { 3 } else { 0 };
-        let outer_right = if box_left < left { 0 } else { 3 };
-        let square = CreateRectRgn(
-            to_px(box_left) + outer_left,
-            0,
-            to_px(box_left + notch) - outer_right,
-            to_px(notch),
-        );
-        // El círculo es dos píxeles mayor que el del CSS: el borde cóncavo se
-        // dibuja con antialiasing, y sin esta holgura quedan píxeles
-        // semitransparentes dentro de la región que Windows pinta de claro
-        // (puntos blancos junto a las muescas).
-        let circle = CreateEllipticRgn(
-            to_px(circle_cx - notch) - 2,
-            -2,
-            to_px(circle_cx + notch) + 2,
-            to_px(notch * 2.0) + 2,
-        );
-        let _ = CombineRgn(Some(square), Some(square), Some(circle), RGN_DIFF);
-        let _ = CombineRgn(Some(region), Some(region), Some(square), RGN_OR);
-        let _ = DeleteObject(HGDIOBJ(square.0));
-        let _ = DeleteObject(HGDIOBJ(circle.0));
-    }
     // Windows se queda con la región al aceptarla: solo hay que liberarla si
     // la llamada falla.
     if SetWindowRgn(hwnd, Some(region), true) == 0 {
         let _ = DeleteObject(HGDIOBJ(region.0));
     }
 }
+
+/// ¿Está el cursor en la franja de encima de la isla, entre ella y el borde de la pantalla?
+///
+/// Lo cuenta como parte de la isla: con el estilo redondeado la isla flota unos píxeles por
+/// debajo del borde, y sin esto, subir el ratón hasta el borde la cerraría. La franja se
+/// toma entre el borde de la pantalla y la isla, dentro de su ancho. La escala sale del
+/// tamaño real de la ventana, que es fijo, para no depender del monitor.
+#[cfg(windows)]
+fn cursor_in_gap(hwnd_raw: isize, island_width: f64) -> bool {
+    use windows::Win32::Foundation::{HWND, POINT, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect};
+
+    let mut cursor = POINT::default();
+    let mut rect = RECT::default();
+    unsafe {
+        if GetCursorPos(&mut cursor).is_err() || GetWindowRect(HWND(hwnd_raw as _), &mut rect).is_err() {
+            return false;
+        }
+    }
+    let win_w = MAX_ISLAND_WIDTH + SIDE_MARGIN * 2.0;
+    let scale = (rect.right - rect.left) as f64 / win_w;
+    if scale <= 0.0 {
+        return false;
+    }
+    let left = rect.left as f64 + island_left(island_width) * scale;
+    let right = left + island_width * scale;
+    // Desde el borde de la pantalla (la ventana puede estar despegada por el ajuste de
+    // separación) hasta donde empieza la isla.
+    let top = rect.top as f64 - settings::current().top_margin.max(0.0) * scale;
+    let island_top = rect.top as f64 + ROUND_GAP * scale;
+    let (x, y) = (cursor.x as f64, cursor.y as f64);
+    x >= left && x <= right && y >= top && y < island_top
+}
+
+/// Color medio del escritorio justo fuera de la isla: cuatro puntos, uno a cada lado, a unos píxeles del borde.
+///
+/// Se leen de la pantalla ya compuesta (`GetPixel` sobre el DC del escritorio), fuera del recorte de la ventana,
+/// donde solo hay escritorio. Si fallan menos de tres puntos se descarta la lectura y el anillo conserva su
+/// último color.
+#[cfg(windows)]
+fn sample_backdrop(hwnd_raw: isize, island_width: f64, island_height: f64) -> Option<(u8, u8, u8)> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, ReleaseDC, CLR_INVALID};
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    let mut rect = RECT::default();
+    unsafe {
+        GetWindowRect(HWND(hwnd_raw as _), &mut rect).ok()?;
+    }
+    let win_w = MAX_ISLAND_WIDTH + SIDE_MARGIN * 2.0;
+    let scale = (rect.right - rect.left) as f64 / win_w;
+    if scale <= 0.0 {
+        return None;
+    }
+    let left = rect.left as f64 + island_left(island_width) * scale;
+    let right = left + island_width * scale;
+    let top = rect.top as f64 + ROUND_GAP * scale;
+    let bottom = top + island_height * scale;
+    let (cx, cy) = ((left + right) / 2.0, (top + bottom) / 2.0);
+    // A 6 px del borde, o 3 en la franja de arriba (que mide justo 6): bastante lejos para no tocar la isla ni su
+    // anillo, y bastante cerca para que sea el mismo fondo.
+    let points = [
+        (left - 6.0 * scale, cy),
+        (right + 6.0 * scale, cy),
+        (cx, top - 3.0 * scale),
+        (cx, bottom + 6.0 * scale),
+    ];
+    let (mut sum, mut valid) = ([0u32; 3], 0u32);
+    unsafe {
+        let dc = GetDC(None);
+        if dc.is_invalid() {
+            return None;
+        }
+        for (x, y) in points {
+            let color = GetPixel(dc, x.round() as i32, y.round() as i32).0;
+            if color == CLR_INVALID {
+                continue;
+            }
+            sum[0] += color & 0xFF;
+            sum[1] += (color >> 8) & 0xFF;
+            sum[2] += (color >> 16) & 0xFF;
+            valid += 1;
+        }
+        ReleaseDC(None, dc);
+    }
+    (valid >= 3).then(|| ((sum[0] / valid) as u8, (sum[1] / valid) as u8, (sum[2] / valid) as u8))
+}
+
+/// Vigila el cursor sobre la franja y avisa a la isla solo cuando cambia.
+#[cfg(windows)]
+fn start_gap_watch(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    std::thread::spawn(move || {
+        // La ventana existe desde el arranque, pero su identificador puede tardar un instante.
+        let hwnd_raw = loop {
+            if let Some(handle) = app.get_webview_window("main").and_then(|w| w.hwnd().ok()) {
+                break handle.0 as isize;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        };
+        let mut was_inside = false;
+        let mut tick = 0u32;
+        let mut last_backdrop: Option<(u8, u8, u8)> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            tick = tick.wrapping_add(1);
+            let (width, height) = ISLAND_SIZE.lock().map(|size| *size).unwrap_or((116.0, 34.0));
+            // Solo hay franja con el estilo flotante, en la isla abierta y en la píldora cerrada. La pestaña
+            // (8 px) no flota y no la tiene.
+            let has_gap = settings::current().island_style == settings::CornerStyle::Round && height > 12.0;
+            let inside = has_gap && cursor_in_gap(hwnd_raw, width);
+            if inside != was_inside {
+                was_inside = inside;
+                let _ = app.emit(GAP_EVENT, GapHover { inside });
+            }
+
+            // Color del escritorio alrededor de la isla, unas dos veces por segundo: es el del anillo que deja el
+            // borde suave. Solo con el estilo flotante y con la isla quieta (durante la animación los puntos de
+            // muestreo caerían sobre la propia isla).
+            if tick % 12 == 0 && has_gap {
+                if let Some(rgb) = sample_backdrop(hwnd_raw, width, height) {
+                    let changed = last_backdrop.is_none_or(|old| {
+                        old.0.abs_diff(rgb.0) > 2 || old.1.abs_diff(rgb.1) > 2 || old.2.abs_diff(rgb.2) > 2
+                    });
+                    if changed {
+                        last_backdrop = Some(rgb);
+                        let _ = app.emit(BACKDROP_EVENT, Backdrop { r: rgb.0, g: rgb.1, b: rgb.2 });
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn start_gap_watch(_app: tauri::AppHandle) {}
 
 /// Borde izquierdo de la píldora dentro de la ventana fija, según la alineación.
 fn island_left(width: f64) -> f64 {
@@ -219,7 +517,7 @@ fn island_left(width: f64) -> f64 {
 /// de más lo pinta Windows de pálido, mientras que quedarse unos milisegundos
 /// corto solo recorta un borde de la píldora, que apenas se nota. La latencia
 /// natural de la llamada ya lo deja ligeramente por detrás.
-fn animate_island(window: &WebviewWindow, width: f64, height: f64) {
+fn animate_island(window: &WebviewWindow, width: f64, height: f64, secs: f64) {
     use std::sync::atomic::Ordering;
 
     if let Ok(mut size) = ISLAND_SIZE.lock() {
@@ -248,7 +546,7 @@ fn animate_island(window: &WebviewWindow, width: f64, height: f64) {
             if ANIM_GEN.load(Ordering::SeqCst) != generation {
                 return;
             }
-            let t = (start.elapsed().as_secs_f64() / MORPH_SECS).min(1.0);
+            let t = (start.elapsed().as_secs_f64() / secs).min(1.0);
             if t >= 1.0 {
                 // Fotograma final: el completo, con posición, desenfoque y repintado.
                 if ANIM_GEN.load(Ordering::SeqCst) == generation {
@@ -274,6 +572,56 @@ fn animate_island(window: &WebviewWindow, width: f64, height: f64) {
             std::thread::sleep(std::time::Duration::from_millis(8));
         }
     });
+}
+
+/// Pantalla donde cuelga la isla según el ajuste `monitor`: 0 es la principal; n ≥ 1, la
+/// n-ésima de las que informa Windows. Si esa pantalla ya no existe (se desenchufó el
+/// segundo monitor), vuelve a la principal en vez de quedarse sin isla.
+fn chosen_monitor(window: &WebviewWindow) -> Option<tauri::Monitor> {
+    let index = settings::current().monitor as usize;
+    if index >= 1 {
+        if let Some(monitor) = window.available_monitors().ok().and_then(|list| list.into_iter().nth(index - 1)) {
+            return Some(monitor);
+        }
+    }
+    window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+}
+
+/// Una pantalla para el selector de los ajustes.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MonitorOption {
+    index: u32,
+    label: String,
+}
+
+/// Pantallas disponibles, para el selector de los ajustes. El 0 es siempre «principal»:
+/// se sigue a la principal aunque Windows cambie cuál es.
+#[tauri::command]
+fn monitors_list(window: WebviewWindow) -> Vec<MonitorOption> {
+    let primary = window.primary_monitor().ok().flatten().map(|m| (m.position().x, m.position().y));
+    let mut options = vec![MonitorOption { index: 0, label: "Pantalla principal".into() }];
+    if let Ok(list) = window.available_monitors() {
+        for (i, monitor) in list.iter().enumerate() {
+            let size = monitor.size();
+            let is_primary = primary == Some((monitor.position().x, monitor.position().y));
+            options.push(MonitorOption {
+                index: i as u32 + 1,
+                label: format!(
+                    "Pantalla {} · {}×{}{}",
+                    i + 1,
+                    size.width,
+                    size.height,
+                    if is_primary { " (principal)" } else { "" }
+                ),
+            });
+        }
+    }
+    options
 }
 
 /// Coloca la ventana en el borde superior de la pantalla activa.
@@ -302,19 +650,14 @@ fn place_island(window: &WebviewWindow, width: f64, height: f64) {
     let win_w = MAX_ISLAND_WIDTH + SIDE_MARGIN * 2.0;
     let win_h = MAX_ISLAND_HEIGHT + WINDOW_PADDING;
 
-    // Se ancla al monitor principal: usar el monitor actual haría que la isla
-    // saltara de pantalla según dónde quedara tras el último movimiento.
-    let monitor = match window.primary_monitor() {
-        Ok(Some(monitor)) => monitor,
-        _ => match window.current_monitor() {
-            Ok(Some(monitor)) => monitor,
-            // Sin monitor conocido no hay forma de centrar: al menos se
-            // ajusta el tamaño, aunque quede donde estaba.
-            _ => {
-                let _ = window.set_size(LogicalSize::new(win_w, win_h));
-                return;
-            }
-        },
+    // Se ancla a la pantalla elegida en los ajustes (por defecto, la principal): usar el
+    // monitor actual haría que la isla saltara de pantalla según dónde quedara tras el
+    // último movimiento.
+    let Some(monitor) = chosen_monitor(window) else {
+        // Sin monitor conocido no hay forma de centrar: al menos se ajusta el tamaño,
+        // aunque quede donde estaba.
+        let _ = window.set_size(LogicalSize::new(win_w, win_h));
+        return;
     };
     let scale = monitor.scale_factor();
     let screen = monitor.size().to_logical::<f64>(scale);
@@ -494,10 +837,16 @@ fn bring_to_front(window: &WebviewWindow) {
 }
 
 /// Ajusta la ventana al tamaño que pide la isla al expandirse o contraerse.
+///
+/// `duration_ms` es la duración de la transición CSS que se está lanzando a la vez:
+/// el recorte tiene que durar lo mismo que la píldora, o uno asoma por detrás del
+/// otro. Sin valor se usa la de siempre. Se acota para que un dato absurdo no deje
+/// el recorte atascado ni lo salte.
 #[tauri::command]
-fn island_resize(window: WebviewWindow, width: f64, height: f64) {
+fn island_resize(window: WebviewWindow, width: f64, height: f64, duration_ms: Option<f64>) {
     bring_to_front(&window);
-    animate_island(&window, width, height);
+    let secs = duration_ms.map_or(MORPH_SECS, |ms| (ms / 1000.0).clamp(0.15, 1.0));
+    animate_island(&window, width, height, secs);
 }
 
 /// Deja pasar los clics a lo que haya debajo, o vuelve a capturarlos.
@@ -739,7 +1088,11 @@ pub fn run() {
             toast_open,
             toasts_access,
             toasts_open_privacy,
-            power_state
+            power_state,
+            monitors_list,
+            weather::weather_current,
+            speedtest::speedtest_run,
+            sysstats::system_stats
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -889,6 +1242,43 @@ pub fn run() {
                 }
             });
 
+            // Bluetooth: se compara la lista de dispositivos conectados cada 3 s.
+            // La primera lectura es la línea base (no avisa de lo que ya estaba
+            // conectado) y una lectura fallida se salta, no cuenta como «todo
+            // desconectado».
+            let bluetooth_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut last = bluetooth::connected_names();
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    let Some(current) = bluetooth::connected_names() else {
+                        continue;
+                    };
+                    if let Some(before) = &last {
+                        // Los ajustes se consultan en cada vuelta para que
+                        // apagar el aviso surta efecto en caliente.
+                        let config = settings::current();
+                        if config.notifications && config.notify_bluetooth {
+                            for change in bluetooth::diff(before, &current) {
+                                let _ = bluetooth_handle.emit(BLUETOOTH_EVENT, change);
+                            }
+                        }
+                    }
+                    last = Some(current);
+                }
+            });
+
+            // Avisos que se sondean en su propio módulo: unidades USB, teclas de
+            // bloqueo, modo de concentración y brillo del portátil.
+            start_gap_watch(app.handle().clone());
+            audio::start(app.handle().clone());
+            downloads::start(app.handle().clone());
+            privacy::start(app.handle().clone());
+            usb::start(app.handle().clone());
+            keys::start(app.handle().clone());
+            focus::start(app.handle().clone());
+            brightness::start(app.handle().clone());
+
             // Notificaciones de otras aplicaciones (apagado por defecto).
             toasts::start(app.handle().clone());
 
@@ -917,4 +1307,49 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Dynamic Island");
+}
+
+#[cfg(test)]
+mod region_tests {
+    use super::pill_spans;
+
+    /// Dibuja la forma en ASCII para verla con `--nocapture`.
+    fn dibujo(spans: &[(i32, i32)], from: i32, to: i32) -> String {
+        spans
+            .iter()
+            .map(|&(a, b)| (from..to).map(|x| if x >= a && x < b { '#' } else { '.' }).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn la_forma_es_simetrica() {
+        // Panel con muescas a 125 %: 330 × 108 lógicos, muesca 22, radio 24.
+        let (l, r) = (60, 60 + 413);
+        let spans = pill_spans(l, 0, r, 134, 30.0, 0.0, 27.5);
+        for (y, &(a, b)) in spans.iter().enumerate() {
+            // El centro de la forma es (l + r) / 2: lo que sobra a un lado sobra al otro.
+            assert_eq!((a - l) + (b - r), 0, "fila {y} descentrada: {a}..{b}");
+        }
+    }
+
+    #[test]
+    fn los_escalones_nunca_retroceden() {
+        // Abajo el tramo solo puede estrecharse y arriba, ensancharse: un escalón que
+        // vuelve atrás es justo lo que se ve «mordido».
+        let spans = pill_spans(60, 0, 473, 134, 30.0, 0.0, 27.5);
+        let notch_rows = (27.5_f64).ceil() as usize;
+        for w in spans[..notch_rows].windows(2) {
+            assert!(w[1].0 >= w[0].0, "la muesca retrocede: {:?} -> {:?}", w[0], w[1]);
+        }
+        for w in spans[notch_rows..].windows(2) {
+            assert!(w[1].0 >= w[0].0, "la esquina retrocede: {:?} -> {:?}", w[0], w[1]);
+        }
+    }
+
+    #[test]
+    fn dibuja_la_esquina() {
+        let spans = pill_spans(30, 0, 150, 60, 20.0, 0.0, 14.0);
+        println!("{}", dibujo(&spans, 10, 60));
+    }
 }

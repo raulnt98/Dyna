@@ -9,7 +9,19 @@
 import {
   IconBatteryExclamation,
   IconBell,
+  IconArrowBigUpLine,
+  IconBluetoothConnected,
+  IconBluetoothOff,
   IconBolt,
+  IconDownload,
+  IconGauge,
+  IconMicrophoneFilled,
+  IconVideoFilled,
+  IconMoon,
+  IconMusic,
+  IconNumber123,
+  IconSun,
+  IconUsb,
   IconVolume2,
   IconVolumeOff,
   IconWifiOff,
@@ -30,5 +42,17 @@ defineProps<{
   <IconBatteryExclamation v-else-if="kind === 'battery'" />
   <WifiGlyph v-else-if="kind === 'wifi'" />
   <IconWifiOff v-else-if="kind === 'internet'" />
+  <IconBluetoothConnected v-else-if="kind === 'bluetooth'" />
+  <IconBluetoothOff v-else-if="kind === 'bluetooth-off'" />
+  <IconUsb v-else-if="kind === 'usb'" />
+  <IconArrowBigUpLine v-else-if="kind === 'caps'" />
+  <IconNumber123 v-else-if="kind === 'num'" />
+  <IconMoon v-else-if="kind === 'focus'" />
+  <IconSun v-else-if="kind === 'brightness'" />
+  <IconMusic v-else-if="kind === 'track'" />
+  <IconMicrophoneFilled v-else-if="kind === 'mic'" />
+  <IconVideoFilled v-else-if="kind === 'camera'" />
+  <IconDownload v-else-if="kind === 'download'" />
+  <IconGauge v-else-if="kind === 'speed'" />
   <IconBell v-else />
 </template>

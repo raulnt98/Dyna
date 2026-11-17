@@ -23,6 +23,21 @@ pub enum CollapsedStyle {
     Tab,
 }
 
+/// Estilo de la isla: dos «packs» completos que valen para la isla cerrada y para la abierta a la vez.
+///
+/// Mismo tamaño en los dos: solo cambian los bordes de arriba y si la isla cuelga del borde o flota.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CornerStyle {
+    /// Con muescas (esquinas invertidas): la isla cuelga del borde de la pantalla y se funde con él, cerrada
+    /// (píldora o pestaña) y abierta.
+    #[default]
+    Notch,
+    /// Flotante redondeada: sin muescas, las esquinas de arriba redondeadas y la isla unos píxeles por debajo
+    /// del borde, cerrada y abierta (la pestaña mínima, que es solo una lengüeta, sigue pegada).
+    Round,
+}
+
 /// Una aplicación detectada y si el usuario quiere ver sus notificaciones.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +56,25 @@ pub struct Settings {
     pub always_on_top: bool,
     /// Aspecto de la isla cerrada: píldora o pestaña mínima.
     pub collapsed_style: CollapsedStyle,
+    /// Estilo de la isla, cerrada y abierta: con muescas o flotante redondeada. Antes se llamaba
+    /// `expandedStyle` y solo valía para la abierta: el alias deja leer un archivo antiguo.
+    #[serde(alias = "expandedStyle")]
+    pub island_style: CornerStyle,
+    /// Avisar cuando una aplicación usa el micrófono o la cámara.
+    pub notify_privacy: bool,
+    /// Avisar de las descargas del navegador (inicio y fin, con la velocidad).
+    pub notify_downloads: bool,
+    /// Que la onda de la isla siga el sonido real del sistema. Captura el audio de salida
+    /// solo para medir su nivel (nada se guarda ni se envía), pero es sensible: nace apagado.
+    pub audio_visualizer: bool,
+    /// Mostrar el tiempo en la vista de inicio. Envía la ciudad a Open-Meteo: nace apagado.
+    pub weather: bool,
+    /// Ciudad para el tiempo, tal como la escribe el usuario.
+    pub weather_city: String,
+    /// Mostrar el botón de test de velocidad en la vista de inicio. Solo mide al pulsarlo.
+    pub speedtest: bool,
+    /// Pantalla donde cuelga la isla: 0 es la principal; n ≥ 1, la n-ésima que informe Windows.
+    pub monitor: u32,
     pub autostart: bool,
     /// Avisar de sucesos del sistema, como conectar el cargador.
     pub notifications: bool,
@@ -55,6 +89,22 @@ pub struct Settings {
     pub notify_wifi: bool,
     /// Avisar al perder o recuperar la salida a internet.
     pub notify_internet: bool,
+    /// Avisar al conectar o desconectar un dispositivo Bluetooth.
+    pub notify_bluetooth: bool,
+    /// Presentar la canción al empezar a sonar o al cambiar de pista.
+    pub notify_track: bool,
+    /// Abrir la isla al pasar el ratón por encima, además de con el clic.
+    pub hover_open: bool,
+    /// Avisar al conectar o retirar una unidad USB extraíble.
+    pub notify_usb: bool,
+    /// Avisar al activar o apagar Bloq Mayús y Bloq Num.
+    pub notify_lock_keys: bool,
+    /// Avisar al activar o apagar el modo No molestar.
+    pub notify_focus: bool,
+    /// Avisar al cambiar el brillo de la pantalla integrada.
+    pub notify_brightness: bool,
+    /// Mostrar el uso de CPU y memoria en la vista de inicio.
+    pub home_stats: bool,
     /// Buscar letras sincronizadas en LRCLIB (envía título y artista).
     pub lyrics: bool,
     /// Mostrar en la isla las notificaciones de otras aplicaciones (Teams,
@@ -80,6 +130,14 @@ impl Default for Settings {
             top_margin: 0.0,
             always_on_top: true,
             collapsed_style: CollapsedStyle::Pill,
+            island_style: CornerStyle::Notch,
+            notify_privacy: true,
+            notify_downloads: true,
+            audio_visualizer: false,
+            weather: false,
+            weather_city: String::new(),
+            speedtest: true,
+            monitor: 0,
             autostart: false,
             notifications: true,
             notify_charger: true,
@@ -87,6 +145,14 @@ impl Default for Settings {
             notify_low_battery: true,
             notify_wifi: true,
             notify_internet: true,
+            notify_bluetooth: true,
+            notify_track: true,
+            hover_open: true,
+            notify_usb: true,
+            notify_lock_keys: true,
+            notify_focus: true,
+            notify_brightness: true,
+            home_stats: true,
             lyrics: true,
             app_notifications: false,
             notification_apps: Vec::new(),
@@ -112,12 +178,23 @@ pub fn current() -> Settings {
     Settings::default()
 }
 
+/// La isla va siempre **centrada y pegada al borde superior**: no es un ajuste. Los campos `position`
+/// y `top_margin` siguen en el archivo (para que uno antiguo se lea sin errores), pero aquí se fuerzan
+/// a su valor fijo al leer y al guardar: un `settings.json` viejo con la isla a un lado no puede dejarla
+/// descentrada sin forma de arreglarlo desde el panel.
+fn pinned(mut settings: Settings) -> Settings {
+    settings.position = Position::Center;
+    settings.top_margin = 0.0;
+    settings
+}
+
 /// Guarda los ajustes en memoria y en disco.
 pub fn store(settings: &Settings) {
+    let settings = pinned(settings.clone());
     if let Ok(mut guard) = CURRENT.lock() {
         *guard = Some(settings.clone());
     }
-    save(settings);
+    save(&settings);
 }
 
 /// Ruta del archivo de ajustes, junto a los datos del usuario.
@@ -136,7 +213,7 @@ fn load() -> Settings {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Settings::default();
     };
-    serde_json::from_str(&text).unwrap_or_default()
+    serde_json::from_str(&text).map(pinned).unwrap_or_default()
 }
 
 /// Escribe los ajustes en disco. Un fallo aquí no debe interrumpir la app.
@@ -197,4 +274,33 @@ pub fn set_autostart(enabled: bool) -> bool {
 #[cfg(not(target_os = "windows"))]
 pub fn set_autostart(_enabled: bool) -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn un_archivo_antiguo_no_puede_descentrar_la_isla() {
+        // Como lo dejaba la versión que sí tenía selector: isla a la izquierda y separada del borde.
+        let old = r#"{"position":"left","topMargin":40.0,"alwaysOnTop":false}"#;
+        let loaded: Settings = serde_json::from_str(old).map(pinned).unwrap();
+        assert_eq!(loaded.position, Position::Center);
+        assert_eq!(loaded.top_margin, 0.0);
+        // Y lo demás del archivo se respeta.
+        assert!(!loaded.always_on_top);
+    }
+
+    #[test]
+    fn el_estilo_antiguo_se_sigue_leyendo() {
+        // Antes el ajuste se llamaba `expandedStyle` y solo valía para la isla abierta: quien lo tenía en
+        // «redondeada» no debe perderlo al actualizar.
+        let old: Settings = serde_json::from_str(r#"{"expandedStyle":"round"}"#).unwrap();
+        assert_eq!(old.island_style, CornerStyle::Round);
+        let new: Settings = serde_json::from_str(r#"{"islandStyle":"round"}"#).unwrap();
+        assert_eq!(new.island_style, CornerStyle::Round);
+        // Y sin nada, con muescas.
+        let none: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(none.island_style, CornerStyle::Notch);
+    }
 }

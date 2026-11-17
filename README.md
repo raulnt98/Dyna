@@ -3,7 +3,7 @@
 Una isla dinámica para el escritorio de Windows, construida con Vue 3 y Tauri 2.
 Cuelga del borde superior de la pantalla, por encima del resto de ventanas, y
 muestra lo que suena en el sistema, letras sincronizadas, avisos del equipo
-(cargador, volumen, batería, Wi-Fi e internet) y notificaciones de otras
+(cargador, volumen, batería, Wi-Fi, internet, Bluetooth, USB, teclas de bloqueo, No molestar y brillo) y notificaciones de otras
 aplicaciones, con la foto de quien te escribe en WhatsApp. Sin nada sonando,
 enseña la hora y la fecha. El repositorio incluye también una demo web que
 simula un escritorio Windows con las actividades.
@@ -32,6 +32,15 @@ descarga `Dynamic.Island_<versión>_x64-setup.exe` y ejecútalo.
 Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
+
+### Novedades de la 0.4.0
+
+- **Avisos nuevos:** Bluetooth, unidades USB, Bloq Mayús/Num, No molestar, brillo, micrófono y cámara en uso, y descargas del navegador. Cada uno con su interruptor.
+- **Isla abierta como carrusel:** sistema (CPU y RAM), reproductor, hora con el tiempo y test de velocidad (solo bajada). Con música sonando, el reproductor es lo principal y vuelve solo a los 15 s.
+- **Estilo de la isla:** con muescas o flotante redondeada, para la isla cerrada y la abierta. El estilo flotante tiene ahora el borde suavizado, sin píxeles blancos.
+- **Visualizador de audio** en tiempo real (apagado por defecto), abrir al pasar el ratón, canción presentada al cambiar de pista y animaciones al estilo Apple.
+- **Ajustes** en pestañas, con elección de pantalla. Sin tooltips nativos.
+- **Red:** el tiempo (Open-Meteo, apagado por defecto) y el test de velocidad (Cloudflare, solo al pulsar) tienen su interruptor.
 
 ### Novedades de la 0.3.1
 
@@ -239,6 +248,17 @@ donde las políticas de control de aplicaciones bloquean complementos nativos.
         ├── smtc.rs                    # Lectura y control de SMTC en Windows
         ├── volume.rs                  # Volumen maestro (Core Audio)
         ├── power.rs                   # Batería y corriente
+        ├── usb.rs                     # Unidades extraíbles
+        ├── keys.rs                    # Bloq Mayús y Bloq Num
+        ├── focus.rs                   # Modo No molestar
+        ├── brightness.rs              # Brillo del panel del portátil
+        ├── sysstats.rs                # CPU y memoria de la vista de inicio
+        ├── privacy.rs                 # Micrófono y cámara en uso (registro de Windows)
+        ├── downloads.rs               # Descargas del navegador (archivos temporales de Descargas)
+        ├── audio.rs                   # Nivel del audio del sistema (WASAPI loopback + FFT)
+        ├── weather.rs                 # Tiempo actual (Open-Meteo)
+        ├── speedtest.rs               # Test de velocidad (Cloudflare)
+        ├── bluetooth.rs               # Dispositivos Bluetooth conectados (enumeración de Windows)
         ├── network.rs                 # Wi-Fi (API WLAN) y salida a internet (Network List Manager)
         ├── lyrics.rs                  # Letras desde LRCLIB
         ├── toasts.rs                  # Notificaciones de otras aplicaciones y apertura de su app
@@ -519,21 +539,29 @@ completa exclusiva sigue pudiendo taparla.
 
 ### Panel de ajustes
 
+El panel está organizado en cinco pestañas, con la cabecera fija arriba: **Isla** (posición, pantalla, aspecto y comportamiento), **Inicio**
+(CPU y memoria, segundos, tiempo y test de velocidad), **Música** (saltos, letras y visualizador de audio), **Avisos** y **Apps**
+(notificaciones de otras aplicaciones). Se recuerda la última pestaña abierta y se cambia también con las flechas del teclado.
+
 Se abre desde la bandeja, en su propia ventana, y sigue disponible con la isla
 en segundo plano. Cada cambio se guarda y se aplica al instante, sin botón de
 confirmación.
 
 | Ajuste | Efecto |
 | --- | --- |
-| Alineación horizontal | Coloca la isla a la izquierda, centrada o a la derecha. |
-| Separación superior | Distancia al borde superior de la pantalla, de 0 a 120 px. |
 | Siempre visible | Mantiene o no la isla por encima de otras ventanas. |
 | Vista minimizada | Cómo se ve la isla cerrada: **píldora** (la de siempre) o **pestaña mínima**, una leve lengüeta de 48 × 8 px pegada al borde que casi no tapa las pestañas del navegador. Un clic la abre y otro la cierra. Los avisos siguen apareciendo igual. |
+| Estilo de la isla | Dos estilos completos, para la isla **cerrada y abierta a la vez** y con el mismo tamaño: **con muescas** (cuelga del borde de la pantalla y se funde con él, con las esquinas invertidas) o **flotante redondeada** (una cápsula suelta, 6 px por debajo del borde y sin muescas). En la pestaña mínima, que es solo una lengüeta, el estilo flotante solo quita las muescas. Acercar el ratón a la franja de arriba también abre la isla. |
+| Pantalla | En qué pantalla cuelga la isla: la principal o cualquiera de las conectadas. Si la elegida se desconecta, vuelve a la principal. |
+| Visualizador de audio real | La onda de la isla sigue el sonido que sale por los altavoces en lugar de animarse sola. Ver [Visualizador de audio](#visualizador-de-audio-real). Apagado por defecto. |
+| Tiempo en la vista de inicio | Temperatura y estado del cielo junto a la fecha, para la **ciudad** que escribas debajo. Envía esa ciudad a Open-Meteo. Apagado por defecto. |
+| Test de velocidad | Una página de la vista de inicio que mide la bajada y la latencia con Cloudflare. Solo mide al pulsar el botón. |
+| Abrir al pasar el ratón | La isla se despliega al acercar el ratón y se recoge al alejarlo, además de con el clic. Si haces clic con ella abierta así, se queda abierta hasta que hagas otro. Con un aviso en pantalla no se abre: el primer toque lo descarta. Activado por defecto. |
 | Segundos en la hora | Muestra o no los segundos en la hora de la [vista de inicio](#vista-de-inicio). Activado por defecto. |
 | Iniciar con Windows | Registra la app en el arranque del usuario actual. |
 | Letras sincronizadas | Busca la letra en LRCLIB. Al desactivarlo, no sale ninguna consulta del equipo. |
 | Salto de los botones | Segundos que avanzan o retroceden los botones: 5, 10, 15 o 30. |
-| Avisos del sistema | Interruptor general de los avisos. Debajo, uno por tipo: cargador, volumen, batería baja (al 20 % y al 10 %), **Wi-Fi** e **Internet**. Ver [Avisos del sistema](#avisos-del-sistema). |
+| Avisos del sistema | Interruptor general de los avisos. Debajo, uno por tipo: cargador, volumen, batería baja (al 20 % y al 10 %), **Wi-Fi**, **Internet**, **Bluetooth**, **USB**, **Bloq Mayús y Bloq Num**, **No molestar**, **Brillo**, **Micrófono y cámara** y **Descargas**. Ver [Avisos del sistema](#avisos-del-sistema). |
 | Notificaciones de aplicaciones | Muestra en la isla las notificaciones de Teams, Outlook, WhatsApp u otras apps, y la lista de cuáles. **Apagado por defecto.** Con WhatsApp activado, descarga además la foto del remitente. Ver [abajo](#notificaciones-de-otras-aplicaciones). |
 
 Los ajustes se guardan en `%APPDATA%\DynamicIsland\settings.json`. Un campo nuevo
@@ -556,6 +584,14 @@ el contenido. Un toque sobre el aviso lo descarta, esté la isla abierta o cerra
 | **Batería baja** | Al bajar al 20 % y al 10 % sin cargador | «Batería baja» o «Batería crítica», con porcentaje y barra. Se avisa una vez por umbral. |
 | **Wi-Fi** | Al conectarse a una red o cambiar de red | «Conectado» con el nombre de la red, y los arcos del icono que se encienden uno a uno. Arrancar ya conectado no avisa. |
 | **Internet** | Al perder la salida a internet, y al recuperarla | «Sin internet» / «Internet restablecido». |
+| **Bluetooth** | Al conectar o desconectar un dispositivo emparejado | «Conectado» / «Desconectado» con el nombre del dispositivo. Lo que ya estaba conectado al arrancar no avisa. Solo lee nombres de dispositivos ya emparejados; no escanea ni envía nada. |
+| **Canción** | Al empezar a sonar algo, o al cambiar de pista (desde el propio reproductor, el navegador o las teclas multimedia) | La carátula, el título y el artista. Con la isla abierta no aparece: el reproductor ya la enseña. Al abrir la app con música sonando no avisa. |
+| **Micrófono y cámara** | Cuando una aplicación empieza a usarlos | Un punto **naranja** (micrófono) o **verde** (cámara) en la isla mientras dure, y un aviso con el nombre de la aplicación al empezar. Solo lee ese nombre: nunca audio ni vídeo. |
+| **Descargas** | Cuando el navegador empieza a descargar, y al terminar | Una línea que recorre la píldora mientras baja, y un aviso con la velocidad al empezar y con el nombre del archivo al terminar. **Sin porcentaje**: ver [Descargas](#descargas-del-navegador). |
+| **USB** | Al conectar o retirar una memoria USB o una tarjeta SD | «Unidad conectada» / «Unidad retirada» con la etiqueta y la letra. Los discos duros externos USB no se detectan: Windows los presenta como discos fijos. |
+| **Bloq Mayús / Bloq Num** | Al activar o apagar la tecla | «Bloq Mayús activado», «Bloq Num desactivado»… Cada tecla con su aviso. |
+| **No molestar** | Al activar o apagar el modo de concentración | «No molestar». **Experimental**: Windows no documenta una API para saberlo y puede no funcionar en todas las versiones. |
+| **Brillo** | Al cambiarlo en la pantalla del portátil | «Brillo» con su nivel y una barra, también con la isla abierta. Solo en portátiles: un monitor externo no se detecta. |
 
 Detalles que conviene saber:
 
@@ -577,7 +613,25 @@ Detalles que conviene saber:
 
 Sin nada sonando, la isla no enseña un reproductor vacío con «Sin reproducción» y
 una barra a cero: muestra la **hora** (en la píldora cerrada) y la **hora con la
-fecha** (abierta), con segundos; se pueden quitar en ajustes. Se activa sola cuando no hay ninguna sesión multimedia, o hay
+fecha** (abierta), con segundos; se pueden quitar en ajustes.
+
+Abierta, la isla es un **carrusel**: dos indicadores laterales rotan entre páginas, dando la vuelta por los extremos. Si suena algo, **el
+reproductor es la página principal**: la isla se abre en él, y si te vas a otra página y la dejas sin tocar unos segundos, vuelve sola.
+Sin música, se abre en la hora. Las flechas están siempre en el mismo sitio, en los extremos de la fila de abajo, sea cual sea la página. Las páginas, en orden:
+
+- **Reproductor** (solo si hay algo en reproducción).
+
+- **Hora** (centro), con la fecha debajo. Si activas el tiempo, a su lado va el icono del cielo (del color de lo que haga:
+  sol ámbar, lluvia azul…) con la temperatura en grande y, debajo, las **máximas y mínimas del día**.
+  Con segundos y tiempo a la vez, la hora baja un poco de tamaño.
+- **CPU y memoria** (a un lado): uso del procesador y de la memoria, con un esqueleto de carga el primer
+  segundo (el uso de CPU se calcula entre dos mediciones).
+- **Velocidad** (al otro): un botón mide la **bajada y la latencia** con el servicio de Cloudflare. La cifra va en
+  directo mientras mide (con un esqueleto antes de la primera lectura). Si terminas con otra página a la vista, un
+  aviso te da el resultado. No mide la subida, a propósito: obligaba a enviar datos y era lo que más facilitaba
+  que el servicio limitara las pruebas. Descarga unas decenas de megas (unos 6 s) y **solo corre cuando pulsas el botón**; habla únicamente con `speed.cloudflare.com`. Si lo repites muchas veces seguidas, Cloudflare limita las descargas grandes durante un rato y la página te lo dice («Demasiadas pruebas seguidas»).
+
+Una página desactivada en ajustes (CPU y memoria, test de velocidad) sale de la rueda. Se activa sola cuando no hay ninguna sesión multimedia, o hay
 una vacía y parada. Una pista en pausa cuenta como medio y sigue mostrando el
 reproductor, por si quieres reanudarla. En cuanto algo empieza a sonar, la isla
 vuelve sola al reproductor.
@@ -710,6 +764,11 @@ fuente externa: la búsqueda envía el título y el artista de la pista a
 `lrclib.net`. **Se puede desactivar** desde el panel de ajustes, y entonces no
 sale ninguna consulta del equipo.
 
+> **Qué sale a la red.** Además de las letras (a LRCLIB) y la foto del remitente (a `whatsapp.net`), hay dos funciones
+> opcionales más: el **tiempo** envía la ciudad que escribas a Open-Meteo (`geocoding-api.open-meteo.com` y
+> `api.open-meteo.com`; apagado por defecto) y el **test de velocidad** habla con `speed.cloudflare.com` solo cuando
+> pulsas su botón. Cada una tiene su interruptor en ajustes.
+
 Dos detalles que hicieron falta para que funcione con reproductores reales:
 
 - Apple Music informa el artista como `Miranda! — El Templo del Pop`, con el
@@ -747,6 +806,28 @@ El icono de volumen de la isla no es decorativo: controla el volumen maestro de
 Windows mediante la API Core Audio (`IAudioEndpointVolume`), el mismo que mueven
 las teclas de volumen del teclado. Al pasar el ratón sobre el icono aparece un
 deslizador, y pulsarlo silencia o restaura el audio.
+
+### Descargas del navegador
+
+Windows no tiene una API general de descargas. Lo que todos los navegadores hacen es escribir la descarga en
+un archivo temporal de la carpeta Descargas que va creciendo (`.crdownload` en Chrome, Edge y Brave; `.part` en
+Firefox; `.opdownload` en Opera) y renombrarlo al terminar. Eso es lo que vigila la isla: **el tamaño y el nombre de
+esos archivos**, nunca su contenido.
+
+Por eso no hay porcentaje (el navegador no dice cuánto falta; de fuera no se sabe): se enseña la velocidad.
+Tampoco se ve un gestor de descargas aparte, ni un navegador con otra extensión temporal.
+
+### Visualizador de audio real
+
+Con el ajuste activo, la onda de la isla (la píldora cerrada, el reproductor abierto y la canción presentada) se mueve
+con el sonido de verdad: cinco bandas, del grave al agudo. Escucha la salida del sistema por «loopback» de WASAPI y
+calcula las bandas con una FFT. **Solo se mide el nivel**: las muestras se descartan en el momento, nada se guarda ni se
+envía, y a la isla solo llegan cinco números. Aun así captura el audio del sistema, así que **nace apagado**. Sin el
+ajuste, el hilo suelta el dispositivo y no captura nada.
+
+La onda tiene **ocho barras**, repartidas en escala logarítmica entre 50 Hz y 16 kHz, y se normaliza respecto al pico reciente: se ve igual de
+viva con el volumen alto que con el bajo, y una pausa no la hace bailar. El análisis va a unas 94 actualizaciones por segundo y el
+movimiento se dibuja a la frecuencia de tu pantalla.
 
 ## Limitaciones actuales
 

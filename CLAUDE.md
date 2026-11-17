@@ -87,6 +87,10 @@ error de compilación.
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
 | Letras | `lyrics_current` | `lyrics.rs` |
 | Alimentación | `power_state` | `power.rs` |
+| Sistema | `system_stats` | `sysstats.rs` |
+| Ventana | `monitors_list` | `lib.rs` |
+| Tiempo | `weather_current` | `weather.rs` |
+| Red | `speedtest_run` | `speedtest.rs` |
 | Notificaciones | `toast_open`, `toasts_access`, `toasts_open_privacy` | `toasts.rs` |
 
 Eventos que emite el backend:
@@ -106,6 +110,52 @@ Eventos que emite el backend:
   `INetworkListManager` (`InternetState`). La pérdida exige dos lecturas
   seguidas; la recuperación se omite si se acaba de anunciar una red Wi-Fi.
   Interruptor `notifyInternet`.
+- `bluetooth://changed` — un dispositivo Bluetooth se conectó o desconectó
+  (`BluetoothChange` en `bluetooth.rs`). Compara cada 3 s la lista de dispositivos
+  conectados (clásicos y LE); la primera lectura es la línea base y una lectura
+  fallida se salta, para que Bluetooth apagado no cuente como «todo desconectado».
+  Interruptor `notifyBluetooth`; lo escucha `src/lib/systemEvents.ts`.
+- `usb://changed` — unidad extraíble conectada o retirada (`UsbChange` en
+  `usb.rs`). Compara cada 2 s las letras de unidad con volumen montado; un lector
+  de tarjetas vacío no cuenta hasta que lleva tarjeta. Los discos duros externos
+  USB se ven como «fijos» en Windows y no se detectan. Interruptor `notifyUsb`.
+- `keys://lock` — Bloq Mayús (`caps`) o Bloq Num (`num`) cambió (`keys.rs`). La
+  lectura (`GetKeyState`) se hace **en el hilo principal** vía `run_on_main_thread`:
+  desde un hilo sin ventanas el estado se queda viejo. Interruptor `notifyLockKeys`.
+- `focus://changed` — No molestar se activó o apagó (`focus.rs`, con
+  `SHQueryUserNotificationState` → `QUNS_QUIET_TIME`). **No verificado**: Windows no
+  documenta una API para esto; si no distingue el modo en alguna versión, el aviso no
+  llega. Interruptor `notifyFocus`.
+- `brightness://changed` — brillo de la pantalla integrada (`brightness.rs`, vía
+  `IOCTL_VIDEO_QUERY_DISPLAY_BRIGHTNESS` sobre `\\.\LCD`; verificado contra WMI).
+  Sin panel integrado (sobremesa, monitor externo) no hace nada. Sondeo de 250 ms.
+  A diferencia del volumen, se anuncia también con la isla abierta. Interruptor
+  `notifyBrightness`.
+- `privacy://changed` — qué aplicación usa el micrófono y la cámara (`PrivacyState` en `privacy.rs`), leído de
+  `CapabilityAccessManager\ConsentStore` (una aplicación lo usa si tiene hora de inicio y su hora de fin es 0; una entrada
+  abierta desde hace más de 12 h se ignora: es el resto de un cierre brusco). Solo nombres, nunca audio ni vídeo.
+  Interruptor `notifyPrivacy`.
+- `audio://levels` — cinco bandas del audio del sistema entre 0 y 1 (`audio.rs`: loopback WASAPI + FFT propia de 1024
+  muestras, sin dependencias). **Solo si `audioVisualizer` está activo** (nace apagado: captura el audio del sistema
+  aunque solo mida el nivel); apagado, el hilo suelta el dispositivo. Probado con un tono: 440 Hz enciende la banda
+  200–600 Hz. `TheIsland.vue` baja `animation` de las barras y fija su altura con `--wave-max`.
+  **Cómo está hecho** (no lo cambies sin leer esto): ocho barras en escala logarítmica de 50 Hz a 16 kHz; cada barra mide la *energía* de su
+  tramo (no el pico de un bin), así todas se mueven parecido; se normaliza al pico reciente (ganancia automática, `RANGE_DB`) con una puerta
+  de ruido absoluta (`GATE_DB`, sin ella la ganancia amplificaría el silencio). Bloques de 2048 muestras con paso de 512 (~94/s), un aviso
+  cada 16 ms (~60/s). **Los niveles no son estado reactivo**: van a `audioFeed` (audioFeed.ts) y cada `WaveBars.vue` los lee en su
+  `requestAnimationFrame`, con suavizado propio (sube 26 ms, baja 105 ms) y `transform: scaleY`. Si pasaran por una prop de Vue, cada aviso
+  repintaría `IslandApp` y la isla entera 60 veces por segundo.
+- `downloads://progress` y `downloads://done` — descargas del navegador (`downloads.rs`). Vigila los temporales de Descargas
+  (`.crdownload`, `.part`, `.opdownload`): tamaño, nombre y fechas, nunca contenido. **No hay porcentaje**: el navegador no lo
+  publica. Un temporal que no crece en 4 s no cuenta. El nombre del archivo terminado es contenido privado: nunca a logs.
+  Interruptor `notifyDownloads`.
+- `speedtest://progress` y `speedtest://done` — test de velocidad (`speedtest.rs`), solo al pulsar el botón. Cloudflare
+  rechaza (403) peticiones de bajada de más de 50 MB: se piden trozos de 25 MB hasta cumplir el tiempo. El resultado llega por
+  evento y por el valor del comando; `applySpeedResult` (IslandApp.vue) lo aplica una sola vez, el que llegue primero.
+  **Cloudflare limita por volumen (429)**: repetir la prueba varias veces seguidas deja de dar bajada durante un rato (las
+  peticiones pequeñas, como la latencia, siguen funcionando). `SpeedResult.error` distingue `limit` de `network` para que el
+  mensaje no diga «revisa tu conexión» cuando la conexión está bien, y tras un 429 no se vuelve a llamar en 3 minutos. Las
+  peticiones son de 50 MB (el máximo) para pedir pocas, y la prueba dura unos 4–5 s por fase. No pruebes en bucle.
 - `toast://received` — notificación nueva de otra aplicación (`AppToast` en
   `toasts.rs`). Solo se emite si `appNotifications` está activo y la app está
   activada en `notificationApps`. **Contenido privado: nunca a logs ni a disco.**
@@ -118,7 +168,8 @@ Eventos que emite el backend:
 
 Cada aviso del sistema (cargador, volumen, batería baja, Wi-Fi) tiene su
 interruptor propio —`notifyCharger`, `notifyVolume`, `notifyLowBattery`,
-`notifyWifi`— además de
+`notifyWifi`, `notifyBluetooth`, `notifyUsb`, `notifyLockKeys`, `notifyFocus`,
+`notifyBrightness`, `notifyTrack`— además de
 `notifications`, el general. Un tipo nuevo necesita el suyo, y los dos se
 consultan en cada vuelta de su sondeo para que apagarlos surta efecto en caliente.
 
@@ -146,12 +197,33 @@ actualizar su viewport unos fotogramas después y se veía el fotograma viejo (l
 píldora duplicada). En su lugar `place_island` la recorta con `SetWindowRgn` a
 la forma exacta de la isla: píldora redondeada más las dos muescas cóncavas.
 
+**Bordes del estilo flotante: anillo opaco del color del escritorio.** Un píxel a medias (el que el CSS dibuja con antialiasing) dentro de la
+ventana **no se mezcla con el escritorio sino con blanco**: medido en la app real, con un escritorio de 39 y una isla de 10, los píxeles del borde valían
+89, 69 y 101. **Una prueba con fondo blanco no lo detecta** (blanco sobre blanco): comprueba siempre también sobre un fondo oscuro. La solución: el
+recorte sube 1 px (`g` en `set_island_region`) y la isla lleva un anillo de 2 px **opaco** (`box-shadow: 0 0 0 2px var(--island-ring)`,
+`.island-wrap.collapsed-round`). El suavizado se hace entre la isla y el anillo, dos colores opacos, y el borde duro del recorte cae sobre el anillo, que
+es del color del escritorio y no se ve. Ese color lo muestrea Rust (`sample_backdrop`, cuatro puntos a 6 px de la isla, unas dos veces por segundo, solo con
+la isla quieta) y llega por `island://backdrop`. Medido después: sobre escritorio oscuro ningún píxel del borde pasa del fondo; sobre blanco, píxeles
+intermedios (118, 204, 64) entre la isla y el blanco, y fuera 255 limpio. Sustituye a la sombra de caída en este estilo (el recorte ya la cortaba). Con
+muescas o con la pestaña, pegadas al borde de la pantalla, no se puede (un píxel de más toca el borde o la juntura de la muesca): ahí el borde sigue
+escalonado. **Los bordes con muescas no se pueden suavizar, solo ordenar.** `SetWindowRgn` recorta a píxeles enteros, sin antialiasing, y
+el borde de la región además sale **pálido** si el píxel que lo toca es transparente (se comprobó agrandando el
+recorte 6 px: aparecían líneas blancas). Por eso la región queda siempre un pelo *dentro* de la forma del CSS. Para que
+el escalón sea lo más regular posible, `pill_region` / `pill_spans` (lib.rs, con pruebas) construyen la forma fila a
+fila con la circunferencia exacta, **muescas incluidas**: un píxel entra solo si queda entero dentro. No vuelvas a
+`CreateRoundRectRgn` (aproxima la elipse con tramos planos) ni a las holguras a ojo de las muescas. Se probó un aro negro de 2 px por dentro del borde para disimular el escalón y se descartó
+(se veía como un marco feo): no lo repongas. El suavizado de verdad exigiría otra arquitectura de ventana
+(capa con alfa por píxel); no es un ajuste.
+
 **El recorte debe seguir a la píldora del CSS.** Windows pinta de pálido
 cualquier píxel transparente dentro de la región, así que si el recorte cambia
 de golpe asoma una forma vieja durante los 0,58 s del CSS. `animate_island`
 (`lib.rs`) lo interpola en un hilo con la misma curva y duración que
 `.island-morph`, y `island_resize` se avisa a la vez que arranca el CSS, al
-crecer y al encoger. El recorte **no debe ir por delante** de la píldora (se
+crecer y al encoger. La duración no es fija: 0,58 s cuando abre o cierra el usuario, 0,40 s cuando un
+aviso del sistema abre la isla y 0,34 s cuando se retira. `IslandApp.vue` la fija en la variable
+CSS `--morph` (píldora y muescas) y la pasa a `island_resize` (`duration_ms`) en la misma llamada:
+las dos deben coincidir, o el recorte asoma por detrás de la píldora. El recorte **no debe ir por delante** de la píldora (se
 vería una franja pálida) y las medidas de muesca y radio replican las del CSS:
 si cambias una, cambia la otra. Los ajustes de uno o dos píxeles de
 `set_island_region` evitan puntos y líneas claras en las muescas; no los
@@ -251,6 +323,96 @@ letras ven todos el mismo texto (tiene pruebas: `cargo test --lib`). Y la sesió
 «actual» de Windows es la última con la que se interactuó, no la que suena:
 `current_session` prefiere la que está reproduciendo.
 
+**Abrir al pasar el ratón** (`hoverOpen`, en `IslandApp.vue`): un retardo de 140 ms al
+entrar y de 320 ms al salir evita aperturas al cruzarla de paso y parpadeos. Una isla abierta
+así se recoge sola, pero un clic encima la «fija» (`openedByHover`). Con un aviso en pantalla
+no se abre. Si el ratón sale con un botón pulsado (arrastrando la barra o el volumen) se espera
+a que lo suelte. Depende de que WebView2 reciba `mouseleave` al salir de la región recortada;
+si alguna vez no llegara, el clic sigue cerrándola.
+
+**El cambio de pista no es un salto.** La carátula (`ArtSwap.vue`, en la píldora y en el panel) gira, se
+desenfoca y se desvanece mientras la nueva entra girando al revés, unidas por un destello; el
+título y el artista se desenfocan en el sitio (`txt-swap`), y el fondo tintado y las muescas se
+funden (`art-fade`, con animación y no con transición porque su opacidad final depende de si
+la isla está abierta). Todo en `style.css`, sección «Cambio de pista». Las muescas deben fundirse
+con el mismo tiempo que el fondo, o saltarían de color mientras el resto se funde.
+
+**La fila de arriba del reproductor tiene el orden y el sitio fijos:** letra, volumen y la onda. El botón de letra
+no desaparece sin letra, queda atenuado y deshabilitado (`lyricsAvailable`), para que nada se mueva al
+cambiar de pista. El deslizador de volumen flota a la izquierda de su botón (absoluto) y no empuja a
+nadie. No se distingue YouTube Music de un vídeo de YouTube: donde LRCLIB no tiene letra, queda bloqueado.
+
+**Las esquinas de la carátula son concéntricas con las de la isla:** radio de la carátula = radio de la isla (18) − margen.
+Reproductor abierto: margen 13 → carátula de 34 px con radio 5. Canción presentada (54 px de alto): margen 10 → radio 8. (Antes la isla
+llevaba 24 y las carátulas 11 y 14: se veía demasiado redondo y la curva de la isla acababa dentro del alto de la carátula.)
+Si cambias el margen o el radio de la isla, recalcula el de la carátula.
+
+**Tiempo (`weather.rs`) y test de velocidad (`speedtest.rs`) salen a la red** y cada uno tiene su interruptor (`weather`, apagado por
+defecto; `speedtest`, activo pero solo mide al pulsar). El tiempo envía a Open-Meteo solo la ciudad que el usuario escribió (para
+buscar coordenadas) y esas coordenadas; los servidores van fijos en el código y la ciudad es solo un parámetro de consulta. Sin
+redirecciones y con tiempo límite, como el resto de peticiones.
+
+**Pantalla elegida** (`monitor`: 0 es la principal; n ≥ 1, la n-ésima que informe Windows). `chosen_monitor` (lib.rs) vuelve a la principal
+si esa pantalla ya no existe. `monitors_list` rellena el selector de ajustes.
+
+**La interfaz no lleva tooltips nativos** (atributo `title`): ni en la isla ni en el panel. Se quitaron todos a petición expresa; para los lectores de
+pantalla basta el `aria-label`. No los repongas, ni uno suelto (el primero en salir fue «Abrir la isla»).
+
+**La posición de la isla no es un ajuste:** siempre centrada y pegada al borde superior. `position` y `top_margin` siguen en `Settings`
+(para leer un `settings.json` antiguo) pero `pinned()` (settings.rs) los fuerza a `Center` y `0` al leer y al guardar. No añadas un selector.
+
+**El panel de ajustes va en pestañas** (`TABS` en `SettingsApp.vue`: Isla, Inicio, Música, Avisos, Apps), con la cabecera y la barra de
+pestañas fijas (`sticky`). Cada pestaña es un `v-show`, no un `v-if`: los paneles siguen montados y el estado (lista de pantallas,
+aplicaciones detectadas) no se pierde al cambiar. Un ajuste nuevo va en la pestaña de lo que toca.
+
+**Los esqueletos de carga repiten la estructura del contenido real** (mismas clases de texto, mismas anchuras de columna, un espacio duro
+para que la línea mida lo mismo): cada bloque cae donde luego caerá el texto y al llegar los datos nada se mueve. Se midió: filas,
+barras y pie coinciden al píxel. Si cambias el contenido de una página, cambia también su esqueleto (`.skeleton`, style.css).
+
+**La isla abierta es un carrusel de páginas** (`homePage`: `system`, `music`, `clock`, `speed`, en ese orden y dando la vuelta). El reproductor es una
+página más y solo entra en la rueda si hay algo en reproducción (`hasMedia`); `carousel` activa todo esto en la ventana real y la demo web
+lo deja apagado (ahí manda `mode`, una actividad por vez). Dos indicadores rotan entre páginas (`rotateHome` en `TheIsland.vue`) y **van en el mismo sitio en todas las páginas**: los extremos de la
+fila de abajo, que es donde caen en el reproductor (la fila de controles, que es donde sobra sitio: a media altura chocarían con los tiempos).
+Una sola definición, `NAV_ARROW`; medidas: izquierda (13, 67), derecha (293, 67), 24 × 28 px, relativas a la isla. Si cambias una, cambia todas. **El reproductor es lo principal mientras suena algo:** la isla se abre en él (si no suena nada,
+en la hora), y si se rota a otra página y se deja sin tocar 15 s vuelve sola (`armBackToPlayer`, IslandApp.vue; cada movimiento del puntero
+reinicia la cuenta, y no corre durante un test de velocidad). Al salir del reproductor se cierra la letra, o la página siguiente se quedaría a
+540 px. CPU y RAM (ajuste `homeStats`) solo se miden con su página a la vista. El test de velocidad (ajuste `speedtest`) guarda su estado en
+`IslandApp.vue`, no en la página. Para añadir una página: ampliar `HomePage`, `homePages` y su `<template v-else-if>`; los indicadores la recogen solos.
+
+**La isla tiene dos estilos, y valen para cerrada y abierta a la vez** (`islandStyle`: `notch` o `round`, ajuste «Estilo de la isla»; antes
+`expandedStyle`, que solo valía para la abierta: queda un `alias` en `settings.rs` para leer archivos antiguos). Son dos «packs»: **con muescas**
+(cuelga del borde, esquinas invertidas) y **flotante redondeada** (sin muescas, esquinas curvas, 6 px por debajo del borde). Mismo tamaño en los
+dos; solo cambian los bordes. `round` quita las muescas (`--notch: 0` en `.island-wrap.expanded-round` y `.island-wrap.collapsed-round`, que se ponen
+juntas) y curva las esquinas de arriba: 18 px la abierta, 17 la píldora cerrada (media altura). La pestaña mínima solo pierde las muescas y sigue
+pegada. **Rust lo replica**: `Shape` lleva `top_radius` y `top_offset`; `for_size` pone notch 0 y el radio que toque según la altura (más de 40 px:
+abierta; más de 12: píldora; el resto: pestaña); `set_island_region` quita a cada esquina lo que queda fuera del cuarto de círculo. Si cambias una
+medida, cambia la otra, o Windows pinta de pálido lo que sobra. La separación de 6 px (`margin-top` en CSS y `ROUND_GAP` en `lib.rs`, que tienen que
+coincidir) queda fuera del recorte (Windows pintaría de pálido un píxel transparente dentro de la región), así que la página no ve el ratón sobre
+ella: `start_gap_watch` (lib.rs) vigila el cursor cada 40 ms y emite `island://gap`; con el ratón ahí, la isla abierta por hover no se recoge y la
+cerrada se abre, porque la franja es parte de la isla.
+
+**El movimiento sigue unos principios** (sección «Movimiento» de `style.css`): una sola curva, la de las hojas de
+iOS `(.32,.72,0,1)`, sin rebote; entrar tarda más que salir; lo que entra va escalonado (carátula o icono
+primero, texto después) y lo que sale se va entero antes de que la isla se cierre (`notice-panel`,
+`content`). Solo opacidad, desenfoque y escala, nunca desplazamiento. Ojo: una animación con relleno (`animation: … both`, como la de entrada de `.island-content`) pisa a
+cualquier transición de las mismas propiedades; por eso la salida de `.island-content` y de
+`.island-collapsed` es otra animación (`content-out`) y no una transición. Si añades un panel de aviso,
+envuélvelo en `<Transition name="notice-panel">` y marca su parte izquierda `np-lead` y su texto `np-copy`.
+
+**La canción presentada mide la mitad del panel** (330 × 54 px, `showsTrackBar` en `TheIsland.vue`,
+`TRACK` en `IslandApp.vue`) con relleno, carátula (38 px) y texto reajustados. Rust la trata como panel
+(más de 40 px de alto: muesca 22, radio 18), así que no necesita una forma propia.
+
+**La canción se presenta sola** (`notifyTrack`, tipo de aviso `track`, en `IslandApp.vue`) al
+empezar a sonar o al cambiar de pista, venga de donde venga: todo llega por SMTC. La primera
+lectura es la línea base, con la isla abierta no se presenta, y se espera 700 ms porque SMTC
+pasa por estados intermedios (título nuevo con la carátula vieja). Si la carátula llega después,
+el aviso se actualiza en el sitio. El panel desplegado admite `data.art` en lugar del icono.
+
+**La vista de inicio mide CPU y memoria** (`homeStats`, `system_stats`) solo mientras está
+abierta y a la vista: `IslandApp.vue` consulta cada 1,5 s y descarta la primera lectura,
+porque el uso de CPU se calcula entre dos consultas seguidas.
+
 **Sin medios, la isla muestra la vista de inicio (`home`).** `displayMode` en `IslandApp.vue` cambia
 `music` por `home` cuando no hay sesión SMTC, o hay una vacía y parada; una pista en pausa
 cuenta como medio. `mode` no cambia, así que al sonar algo la isla vuelve sola al reproductor.
@@ -272,7 +434,7 @@ el separador antes de consultar. Y `/api/get` exige que la duración coincida,
 cosa que falla con recopilatorios, así que se reintenta con `/api/search`, más
 tolerante.
 
-**Las letras y la foto del remitente son las únicas salidas de red del proyecto.**
+**Las letras, la foto del remitente, el tiempo y el test de velocidad son las únicas salidas de red del proyecto.**
 El ajuste `lyrics` desactiva la primera por completo; `lyrics_current` comprueba
 `settings::current().lyrics` antes de consultar. Cualquier función nueva que
 envíe datos fuera del equipo necesita su propio interruptor en los ajustes y una

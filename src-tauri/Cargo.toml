@@ -1,6 +1,6 @@
 [package]
 name = "dynamic-island"
-version = "0.3.1"
+version = "0.4.0"
 description = "Dynamic Island para escritorio Windows"
 authors = ["Raul Nuñez"]
 license = "MIT"
@@ -57,6 +57,19 @@ windows = { version = "0.62", features = [
     # WlanEnumInterfaces y WlanQueryInterface: red Wi-Fi actual, para el aviso
     # al conectarse.
     "Win32_NetworkManagement_WiFi",
+    # Dispositivos Bluetooth conectados, para el aviso al conectar o desconectar
+    # (ver bluetooth.rs).
+    "Devices_Bluetooth",
+    "Devices_Enumeration",
+    # Unidades extraíbles (usb.rs), el panel del portátil (brightness.rs), las
+    # teclas de bloqueo (keys.rs) y el uso de CPU y memoria (sysstats.rs).
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_Security",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
     # INetworkListManager: saber si hay salida a internet, no solo red local.
     "Win32_Networking_NetworkListManager",
 ] }

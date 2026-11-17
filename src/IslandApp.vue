@@ -6,14 +6,16 @@
  * actividades: la ventana es del tamaño de la isla y se mueve y redimensiona
  * desde Rust según el estado.
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import TheIsland from "@/components/TheIsland.vue";
 import { useSystemMedia } from "@/lib/media";
+import { accentFromArtwork } from "@/lib/artColor";
+import { clearAudioLevels, pushAudioLevels } from "@/lib/audioFeed";
 import { useSmoothPosition } from "@/lib/clock";
 import { useLyrics } from "@/lib/lyrics";
 import { noticeWidth, useNotifications } from "@/lib/notifications";
 import { useSystemPower } from "@/lib/power";
-import { tidyToast, useLowBatteryEvents, useToastEvents, useInternetEvents, useVolumeEvents, useWifiEvents } from "@/lib/systemEvents";
+import { tidyToast, toastMediaKind, useAudioLevels, useBluetoothEvents, useBrightnessEvents, useDownloadEvents, usePrivacyEvents, useSpeedtestEvents, useFocusEvents, useLockKeyEvents, useUsbEvents, useLowBatteryEvents, useToastEvents, useInternetEvents, useVolumeEvents, useWifiEvents } from "@/lib/systemEvents";
 import type { Activity } from "@/lib/activities";
 
 /**
@@ -44,6 +46,9 @@ const EXPANDED = { width: 330, height: 108 };
 /** Con la letra abierta la isla se alarga para dejarle sitio al panel. */
 const WITH_LYRICS = { width: 540, height: 108 };
 
+/** La canción presentada usa la mitad del alto del panel: ver `showsTrackBar` en TheIsland.vue. */
+const TRACK = { width: 330, height: 54 };
+
 const mode = ref<Activity>("music");
 const expanded = ref(false);
 /** Lado de la pantalla al que se pega la isla, según los ajustes. */
@@ -66,7 +71,15 @@ const stageAlignment = computed(() => {
 });
 /** Aspecto de la isla cerrada, según los ajustes: píldora o pestaña mínima. */
 type CollapsedStyle = "pill" | "tab";
+/** Estilo de la isla, cerrada y abierta: con muescas (colgada del borde) o flotante redondeada. */
+type IslandStyle = "notch" | "round";
 const collapsedStyle = ref<CollapsedStyle>("pill");
+const islandStyle = ref<IslandStyle>("notch");
+/**
+ * Color del anillo que suaviza el borde del estilo flotante: el del escritorio alrededor de la isla (lo muestrea
+ * Rust, ver `sample_backdrop`). Hasta la primera lectura, un gris oscuro neutro.
+ */
+const ring = ref("rgb(38, 41, 43)");
 const media = useSystemMedia();
 
 /** Cola de avisos: interrumpen la píldora compacta y se retiran solos. */
@@ -138,7 +151,7 @@ useToastEvents((toast) => {
     label: `${toast.app} · ${text}`,
     duration: toastDuration(body),
     stack: true,
-    data: { tall: true, id: toast.id, app: toast.app, title, body, avatar: toast.avatar ?? null, icon: toast.icon ?? null },
+    data: { tall: true, id: toast.id, app: toast.app, title, body, media: toastMediaKind(body)?.kind ?? null, mediaDetail: toastMediaKind(body)?.detail ?? "", avatar: toast.avatar ?? null, icon: toast.icon ?? null },
   });
 });
 
@@ -185,6 +198,263 @@ useInternetEvents((online) => {
   );
 });
 
+/**
+ * Aviso al conectar o desconectar un dispositivo Bluetooth.
+ *
+ * Cada sentido lleva su propio tipo para que conectar y desconectar seguidos
+ * no se reemplacen entre sí: son dos hechos distintos. El nombre va completo:
+ * el panel desplegado lo trunca con puntos suspensivos.
+ */
+useBluetoothEvents((change) => {
+  notifications.notify({
+    kind: change.connected ? "bluetooth" : "bluetooth-off",
+    label: `${change.connected ? "Conectado" : "Desconectado"} · ${change.name}`,
+    duration: 3600,
+    data: {
+      deployed: true,
+      title: change.connected ? "Conectado" : "Desconectado",
+      subtitle: change.name,
+    },
+  });
+});
+
+/**
+ * Micrófono y cámara en uso: un punto de color en la isla mientras dure y un aviso al empezar.
+ * El backend manda el estado completo cada vez que cambia; el aviso solo salta al pasar de
+ * «nadie» a «alguien», no cuando cambia la aplicación que ya lo usaba.
+ */
+const privacy = ref<{ microphone: string | null; camera: string | null } | null>(null);
+let previousPrivacy = { microphone: null as string | null, camera: null as string | null };
+usePrivacyEvents((state) => {
+  privacy.value = state;
+  if (state.microphone && !previousPrivacy.microphone) {
+    notifications.notify({
+      kind: "mic",
+      label: `Micrófono en uso · ${state.microphone}`,
+      duration: 3200,
+      data: { deployed: true, title: "Micrófono en uso", subtitle: state.microphone },
+    });
+  }
+  if (state.camera && !previousPrivacy.camera) {
+    notifications.notify({
+      kind: "camera",
+      label: `Cámara en uso · ${state.camera}`,
+      duration: 3200,
+      data: { deployed: true, title: "Cámara en uso", subtitle: state.camera },
+    });
+  }
+  previousPrivacy = state;
+});
+
+/**
+ * Niveles del audio real para la onda (ajuste `audioVisualizer`). Van a `audioFeed`, fuera de la
+ * reactividad (ver audioFeed.ts): llegan unas 60 veces por segundo y cada una repintaría la isla entera.
+ */
+const audioOn = ref(false);
+useAudioLevels((levels) => {
+  if (audioOn.value) pushAudioLevels(levels);
+});
+watch(audioOn, (on) => {
+  if (!on) clearAudioLevels();
+});
+
+/** Velocidad legible: «3,2 MB/s» o «840 KB/s». */
+function formatBytesPerSecond(bytes: number): string {
+  const mb = bytes / 1_000_000;
+  if (mb >= 1) return `${mb.toLocaleString("es", { maximumFractionDigits: 1 })} MB/s`;
+  return `${Math.round(bytes / 1000)} KB/s`;
+}
+
+/**
+ * Descargas del navegador: una línea recorre la píldora mientras dura, un aviso al empezar
+ * (con la velocidad) y otro al terminar (con el nombre). Sin porcentaje: ver downloads.rs.
+ */
+const downloading = ref(false);
+useDownloadEvents(
+  (progress) => {
+    const started = progress.active && !downloading.value;
+    downloading.value = progress.active;
+    if (started) {
+      notifications.notify({
+        kind: "download",
+        label: "Descargando",
+        duration: 2800,
+        data: { deployed: true, title: "Descargando", subtitle: progress.speed > 0 ? formatBytesPerSecond(progress.speed) : "En curso" },
+      });
+    }
+  },
+  (done) => {
+    const name = done.name.length > 30 ? `${done.name.slice(0, 29)}…` : done.name;
+    notifications.notify({
+      kind: "download",
+      label: "Descarga completada",
+      duration: 4200,
+      data: { deployed: true, title: "Descarga completada", subtitle: name },
+    });
+  },
+);
+
+/** El tiempo de la vista de inicio (ajustes `weather` y `weatherCity`; ver weather.rs). */
+const weatherOn = ref(false);
+const weatherCity = ref("");
+const weather = ref<{ city: string; temp: number; text: string; kind: string; max: number | null; min: number | null } | null>(null);
+async function refreshWeather() {
+  if (!weatherOn.value || !weatherCity.value.trim()) {
+    weather.value = null;
+    return;
+  }
+  const result = await invokeResult<{ city: string; temp: number; text: string; kind: string; max: number | null; min: number | null } | null>("weather_current");
+  // Si la consulta falla (sin red) se conserva el último dato en vez de borrarlo.
+  if (result) weather.value = result;
+}
+// La ciudad se teclea en los ajustes y cada letra llega como un cambio: se espera a que pare.
+let weatherDebounce: number | undefined;
+watch([weatherOn, weatherCity], () => {
+  weather.value = null;
+  if (weatherDebounce !== undefined) window.clearTimeout(weatherDebounce);
+  weatherDebounce = window.setTimeout(() => void refreshWeather(), 900);
+});
+let weatherTimer: number | undefined;
+onMounted(() => {
+  weatherTimer = window.setInterval(() => void refreshWeather(), 10 * 60 * 1000);
+});
+onUnmounted(() => {
+  if (weatherTimer !== undefined) window.clearInterval(weatherTimer);
+});
+
+/**
+ * Test de velocidad (página de velocidad de la vista de inicio; ver speedtest.rs).
+ *
+ * El estado vive aquí y no en la página: así el resultado sigue ahí si se cambia de página o
+ * se cierra la isla y se vuelve a abrir. Mientras mide, la página enseña la fase y la velocidad
+ * del momento; al terminar, la bajada y la subida. Si en ese momento no se está mirando esa
+ * página, un aviso avisa del resultado (el test dura unos 12 s y nadie se queda mirando).
+ */
+const speedtestOn = ref(true);
+type SpeedState = {
+  status: "idle" | "running" | "done" | "error";
+  phase: "ping" | "down" | null;
+  mbps: number;
+  down: number | null;
+  ping: number | null;
+  /** Por qué falló, si falló: el mensaje es distinto si el servicio limita las pruebas. */
+  reason: "limit" | "network" | null;
+};
+const speed = ref<SpeedState>({ status: "idle", phase: null, mbps: 0, down: null, ping: null, reason: null });
+/** Página de la vista de inicio: la hora en el centro; CPU y RAM a un lado, la velocidad al otro. */
+const homePage = ref<"clock" | "system" | "speed" | "music">("clock");
+/** Megabits legibles, con coma decimal: «538», «79,2». */
+const formatMbps = (value: number) => (value >= 100 ? value.toFixed(0) : value.toFixed(1).replace(".", ","));
+/**
+ * Aplica el resultado del test, una sola vez. Llega por dos caminos (el evento `speedtest://done`
+ * y el valor que devuelve el comando) y no se sabe cuál llega antes; el que llega segundo ve que la
+ * prueba ya no está «midiendo» y no hace nada, así el aviso no sale duplicado ni la página parpadea.
+ */
+function applySpeedResult(result: { down: number | null; ping: number | null; error?: "limit" | "network" | null } | null | undefined) {
+  if (speed.value.status !== "running") return;
+  if (!result || result.down === null) {
+    speed.value = { status: "error", phase: null, mbps: 0, down: null, ping: null, reason: result?.error ?? "network" };
+  } else {
+    speed.value = { status: "done", phase: null, mbps: 0, down: result.down, ping: result.ping, reason: null };
+  }
+  // Con su página a la vista no hace falta aviso: el resultado ya está delante.
+  if (expanded.value && homePage.value === "speed") return;
+  if (!result || result.down === null) {
+    const limited = result?.error === "limit";
+    notifications.notify({
+      kind: "speed",
+      label: "No se pudo medir",
+      duration: 5000,
+      data: { deployed: true, title: "No se pudo medir", subtitle: limited ? "Demasiadas pruebas seguidas" : "Comprueba tu conexión" },
+    });
+    return;
+  }
+  notifications.notify({
+    kind: "speed",
+    label: `↓ ${formatMbps(result.down)} Mbps`,
+    duration: 9000,
+    data: { deployed: true, title: `↓ ${formatMbps(result.down)} Mbps`, subtitle: result.ping === null ? "Bajada" : `Latencia ${Math.round(result.ping)} ms` },
+  });
+}
+async function startSpeedtest() {
+  if (speed.value.status === "running" || !speedtestOn.value) return;
+  // Las dos cifras empiezan vacías y se llenan en orden: bajada, luego subida.
+  speed.value = { status: "running", phase: "ping", mbps: 0, down: null, ping: null, reason: null };
+  const result = await invokeResult<{ down: number | null; ping: number | null; error?: "limit" | "network" | null } | null>("speedtest_run");
+  applySpeedResult(result);
+}
+useSpeedtestEvents(
+  (progress) => {
+    if (speed.value.status !== "running") return;
+    // La cifra de la fase en curso va en directo; la de la fase anterior se queda como estaba
+    // hasta que llegue el resultado final, que es el promedio de toda la fase.
+    speed.value = {
+      ...speed.value,
+      phase: progress.phase,
+      mbps: progress.mbps,
+      down: progress.phase === "down" ? progress.mbps : speed.value.down,
+    };
+  },
+  (result) => applySpeedResult(result),
+);
+
+/** Unidad extraíble conectada o retirada. Un mismo tipo: al enchufar y sacar seguido interesa el estado final. */
+useUsbEvents((change) => {
+  const subtitle = `${change.name || "Unidad extraíble"} (${change.letter}:)`;
+  notifications.notify({
+    kind: "usb",
+    label: `${change.connected ? "Unidad conectada" : "Unidad retirada"} · ${subtitle}`,
+    duration: 3600,
+    data: { deployed: true, title: change.connected ? "Unidad conectada" : "Unidad retirada", subtitle },
+  });
+});
+
+/** Bloq Mayús y Bloq Num. Cada tecla con su tipo, para que no se reemplacen entre sí. */
+useLockKeyEvents(({ key, on }) => {
+  const caps = key === "caps";
+  const title = `${caps ? "Bloq Mayús" : "Bloq Num"} ${on ? "activado" : "desactivado"}`;
+  notifications.notify({
+    kind: key,
+    label: title,
+    duration: 1800,
+    data: {
+      deployed: true,
+      title,
+      subtitle: caps
+        ? on ? "Las letras salen en mayúsculas" : "Las letras salen en minúsculas"
+        : on ? "Teclado numérico activo" : "Teclado numérico apagado",
+    },
+  });
+});
+
+/** Modo No molestar. */
+useFocusEvents((on) => {
+  notifications.notify({
+    kind: "focus",
+    label: on ? "No molestar activado" : "No molestar desactivado",
+    duration: 2800,
+    data: {
+      deployed: true,
+      title: on ? "No molestar" : "No molestar desactivado",
+      subtitle: on ? "Avisos silenciados" : "Los avisos vuelven",
+    },
+  });
+});
+
+/**
+ * Brillo de la pantalla. A diferencia del volumen, se anuncia con la isla abierta:
+ * su panel no tiene un control de brillo que ya lo muestre. Mientras se sigue
+ * pulsando la tecla, el mismo tipo actualiza el aviso en el sitio.
+ */
+useBrightnessEvents((level) => {
+  notifications.notify({
+    kind: "brightness",
+    label: `Brillo ${level}%`,
+    duration: 1800,
+    data: { level, deployed: true, title: "Brillo", subtitle: `${level}%` },
+  });
+});
+
 /** Aviso al cruzar el 20 % y el 10 % de batería sin cargador. */
 useLowBatteryEvents((state) => {
   notifications.notify({
@@ -227,12 +497,72 @@ const hasMedia = computed(() => {
 const displayMode = computed<Activity>(() =>
   mode.value === "music" && !hasMedia.value ? "home" : mode.value,
 );
+
+/**
+ * El reproductor es la página principal mientras suena algo.
+ *
+ * - La isla se abre en él (y al cerrar se prepara para abrirse en él); si no suena nada, en la hora.
+ * - Si se rota a otra página (la hora, CPU y RAM, la velocidad) y se deja sin tocar, **vuelve sola al
+ *   reproductor** pasados unos segundos: «en primer plano» mientras se usa. Cada movimiento del puntero
+ *   por la isla reinicia la cuenta, y no corre mientras mide un test de velocidad, para no
+ *   arrebatarle la pantalla a una medición en curso.
+ */
+const IDLE_BACK_MS = 15_000;
+const defaultPage = () => (hasMedia.value ? "music" : "clock");
+watch(expanded, () => {
+  homePage.value = defaultPage();
+});
+watch(hasMedia, (has) => {
+  // Si lo que sonaba se para mientras se mira el reproductor, no queda una página vacía; y si algo
+  // empieza a sonar con la isla cerrada, la próxima vez se abre en él.
+  if (!has && homePage.value === "music") homePage.value = "clock";
+  if (has && !expanded.value) homePage.value = "music";
+});
+// Con la letra abierta la isla se alarga: al salir del reproductor se cierra, o la página siguiente
+// se quedaría en 540 px de ancho.
+watch(homePage, (page) => {
+  if (page !== "music") lyricsOpen.value = false;
+});
+let backTimer: number | undefined;
+function armBackToPlayer() {
+  if (backTimer !== undefined) window.clearTimeout(backTimer);
+  backTimer = undefined;
+  if (!expanded.value || !hasMedia.value || homePage.value === "music" || speed.value.status === "running") return;
+  backTimer = window.setTimeout(() => {
+    if (expanded.value && hasMedia.value && speed.value.status !== "running") homePage.value = "music";
+  }, IDLE_BACK_MS);
+}
+watch([homePage, expanded, hasMedia, () => speed.value.status], armBackToPlayer);
+onMounted(() => window.addEventListener("pointermove", armBackToPlayer, { passive: true }));
+onUnmounted(() => {
+  window.removeEventListener("pointermove", armBackToPlayer);
+  if (backTimer !== undefined) window.clearTimeout(backTimer);
+});
 const trackSubtitle = computed(() => {
   const { artist, album } = media.state.value;
   return [artist, album].filter(Boolean).join(" · ");
 });
 const trackInitial = computed(() => trackTitle.value.charAt(0).toUpperCase() || "M");
 const trackArtwork = computed(() => media.state.value.artwork);
+
+/**
+ * Tono de la carátula, para la onda de sonido. Vacío (verde de siempre) hasta
+ * calcularlo o si la pista no tiene portada. Se descarta el resultado si, mientras
+ * se calculaba, ya cambió la pista: pintaría el color de la anterior.
+ */
+const artAccent = ref("");
+watch(
+  trackArtwork,
+  async (art) => {
+    if (!art) {
+      artAccent.value = "";
+      return;
+    }
+    const accent = await accentFromArtwork(art);
+    if (trackArtwork.value === art) artAccent.value = accent ?? "";
+  },
+  { immediate: true },
+);
 /** Algunos reproductores no permiten saltar de posición (Apple Music). */
 const canSeek = computed(() => media.state.value.canSeek);
 const positionLabel = computed(() => formatTime(media.state.value.position));
@@ -279,6 +609,8 @@ const targetSize = computed(() => {
   // cambia el tamaño: el panel del aviso ocupa la isla tal como está (con o sin
   // letra) y, al retirarse, vuelve el contenido.
   if (!expanded.value) {
+    // La canción que se presenta mide la mitad del panel; va antes que `deployed`.
+    if (notice.value?.kind === "track") return TRACK;
     // El aviso del cargador crece al tamaño del panel (ver `showsCharge`).
     if (notice.value?.data?.large || notice.value?.data?.deployed) return EXPANDED;
     // La notificación de otra app mide lo mismo que el panel: avatar, remitente y mensaje.
@@ -301,9 +633,26 @@ const targetSize = computed(() => {
  * (`SetWindowRgn`), así que no hay viewport que actualizar ni fotograma
  * viejo que se cuele. Por eso la isla puede centrarse sin más en la ventana.
  */
-function resizeWindow(size: { width: number; height: number }) {
-  invokeWindow("island_resize", size);
+function resizeWindow(size: { width: number; height: number }, durationMs?: number) {
+  invokeWindow("island_resize", { ...size, durationMs });
 }
+
+/**
+ * Duración de la transición de tamaño.
+ *
+ * Cuando es el usuario quien abre o cierra la isla, 0,58 s: un gesto propio se
+ * acompaña con calma. Un aviso del sistema llega sin que nadie lo pida y no debe
+ * hacer esperar: se abre en 0,40 s y se retira en 0,34 s, algo más rápido, porque
+ * lo que sale no necesita lucirse. La misma curva sin rebote en todos.
+ *
+ * Va en la variable CSS `--morph` y se pasa a Rust a la vez: el recorte nativo
+ * debe durar lo mismo que la píldora.
+ */
+const MORPH_USER_MS = 580;
+const MORPH_NOTICE_IN_MS = 400;
+const MORPH_NOTICE_OUT_MS = 340;
+const morphMs = ref(MORPH_USER_MS);
+let hadNotice = false;
 
 /**
  * Sincroniza el recorte de la ventana con el tamaño de la isla.
@@ -320,14 +669,21 @@ watch(
     // watch salta aunque las medidas no cambien: sin esta comparación por
     // valor, actualizar el texto de un aviso redimensionaría la ventana al
     // mismo tamaño que ya tenía, y ese `SetWindowPos` de más se ve parpadear.
+    const hasNotice = !!notice.value;
+    // Un aviso que aparece, cambia o se retira es cosa del sistema; el resto,
+    // del usuario. Se calcula antes del `return` para no dejar `hadNotice` viejo.
+    const duration = hasNotice ? MORPH_NOTICE_IN_MS : hadNotice ? MORPH_NOTICE_OUT_MS : MORPH_USER_MS;
+    hadNotice = hasNotice;
     if (previous && size.width === previous.width && size.height === previous.height) return;
 
-    resizeWindow(size);
+    morphMs.value = duration;
+    resizeWindow(size, duration);
   },
   { immediate: true },
 );
 
 watch(expanded, (isExpanded) => {
+  if (!isExpanded) openedByHover = false;
   // El volumen puede haber cambiado desde el sistema mientras estaba cerrada.
   if (isExpanded) refreshVolume();
   // Al contraerse, la letra se cierra para no reabrirse enorme.
@@ -373,6 +729,70 @@ async function toggleMute() {
   if (next !== undefined) muted.value = next;
 }
 
+/**
+ * Abrir al pasar el ratón (ajuste `hoverOpen`), además del clic.
+ *
+ * Un pequeño retardo al entrar evita que la isla se abra al cruzarla de paso, y
+ * otro al salir evita que parpadee si el ratón roza el borde. Una isla abierta
+ * así se recoge sola al alejarse; con un clic encima se «fija» y deja de hacerlo,
+ * como si se hubiera abierto con el clic. Con un aviso en pantalla no se abre:
+ * el primer toque tiene que descartarlo, y desplegarla debajo lo taparía.
+ */
+const hoverOpen = ref(true);
+let openedByHover = false;
+let hoverTimer: number | undefined;
+const clearHoverTimer = () => {
+  if (hoverTimer !== undefined) window.clearTimeout(hoverTimer);
+  hoverTimer = undefined;
+};
+
+/** El ratón está sobre la isla / sobre la franja entre ella y el borde (vista redondeada). */
+let overIsland = false;
+let inGap = false;
+
+function handleIslandEnter() {
+  overIsland = true;
+  clearHoverTimer();
+  if (!hoverOpen.value || expanded.value || notice.value) return;
+  hoverTimer = window.setTimeout(() => {
+    if (notice.value || expanded.value) return;
+    openedByHover = true;
+    expanded.value = true;
+  }, 140);
+}
+
+function collapseIfHoverOpened() {
+  clearHoverTimer();
+  if (!openedByHover) return;
+  hoverTimer = window.setTimeout(() => {
+    if (!openedByHover) return;
+    openedByHover = false;
+    expanded.value = false;
+  }, 320);
+}
+
+function handleIslandLeave(event: MouseEvent) {
+  overIsland = false;
+  clearHoverTimer();
+  // Subir hasta la franja del borde sigue siendo estar en la isla.
+  if (inGap) return;
+  if (!openedByHover) return;
+  // Arrastrando la barra de progreso o el volumen el ratón puede salirse de la
+  // isla sin querer soltarla: se espera a que suelte para decidir.
+  if (event.buttons !== 0) {
+    window.addEventListener(
+      "pointerup",
+      () => {
+        const stillOver = document.querySelector(".island")?.matches(":hover") ?? false;
+        if (!stillOver) collapseIfHoverOpened();
+      },
+      { once: true },
+    );
+    return;
+  }
+  collapseIfHoverOpened();
+}
+
 function toggleIsland() {
   // Con un aviso en pantalla, el primer toque lo descarta, esté la isla como
   // esté: abrirla o cerrarla debajo dejaría el aviso tapado y la cola seguiría
@@ -384,6 +804,12 @@ function toggleIsland() {
     notifications.dismiss();
     return;
   }
+  // Un clic sobre una isla abierta por el ratón la deja abierta, no la cierra.
+  if (expanded.value && openedByHover) {
+    openedByHover = false;
+    return;
+  }
+  openedByHover = false;
   expanded.value = !expanded.value;
 }
 
@@ -404,18 +830,140 @@ function handleIslandKeydown(event: KeyboardEvent) {
 const skipSeconds = ref(10);
 /** Segundos en la hora de la vista de inicio. Con `!== undefined`, no por verdad: `false` es un valor válido. */
 const homeSeconds = ref(true);
+/** Ajustes que gobiernan la presentación de la canción (`notifications` y `notifyTrack`). */
+const notificationsOn = ref(true);
+const trackNoticeOn = ref(true);
+
+/**
+ * Presenta la canción cuando empieza a sonar o cambia de pista, también si el
+ * cambio viene de otra aplicación (el reproductor, el navegador, las teclas
+ * multimedia): todo llega por SMTC, da igual quién lo provocó.
+ *
+ * - La primera lectura es la línea base: abrir la isla con música sonando ya no
+ *   es una novedad.
+ * - Con la isla abierta no se presenta: el reproductor ya enseña la canción.
+ * - Se espera un instante antes de avisar: al cambiar de pista SMTC pasa por
+ *   estados intermedios (título nuevo con la carátula vieja, pausa breve) y se
+ *   presentaría dos veces o con la imagen equivocada.
+ * - Si la carátula llega después del aviso, se actualiza en el sitio (mismo tipo).
+ */
+let trackPrimed = false;
+let lastTrack = "";
+let lastPlaying = false;
+let trackTimer: number | undefined;
+let presented: { track: string; at: number; artworkLength: number } | null = null;
+
+function presentTrack() {
+  const s = media.state.value;
+  if (!trackNoticeOn.value || !notificationsOn.value || expanded.value) return;
+  if (!s.hasSession || !s.playing || !s.title) return;
+  presented = { track: `${s.title}|${s.artist}`, at: Date.now(), artworkLength: s.artwork.length };
+  notifications.notify({
+    kind: "track",
+    label: s.title,
+    duration: 4200,
+    data: { deployed: true, title: s.title, subtitle: s.artist || s.album, art: s.artwork || null },
+  });
+}
+
+watch(
+  () => {
+    const s = media.state.value;
+    return `${media.live.value}|${s.hasSession}|${s.playing}|${s.title}|${s.artist}`;
+  },
+  () => {
+    const s = media.state.value;
+    // Fuera de la app de escritorio la pista es de ejemplo: no se presenta.
+    if (!media.live.value) return;
+    const track = `${s.title}|${s.artist}`;
+    const playing = s.hasSession && s.playing && !!s.title;
+    if (!trackPrimed) {
+      trackPrimed = true;
+      lastTrack = track;
+      lastPlaying = playing;
+      return;
+    }
+    const started = playing && !lastPlaying;
+    const changed = playing && track !== lastTrack;
+    lastTrack = track;
+    lastPlaying = playing;
+    if (!started && !changed) return;
+    if (trackTimer !== undefined) window.clearTimeout(trackTimer);
+    trackTimer = window.setTimeout(presentTrack, 700);
+  },
+);
+
+// La carátula de un reproductor web llega después del título.
+watch(
+  () => media.state.value.artwork.length,
+  (length) => {
+    const s = media.state.value;
+    if (!presented || Date.now() - presented.at > 4000) return;
+    if (presented.track !== `${s.title}|${s.artist}` || length === presented.artworkLength) return;
+    if (notice.value?.kind === "track") presentTrack();
+  },
+);
+/** Mostrar CPU y memoria en la vista de inicio (ajuste `homeStats`). */
+const showHomeStats = ref(true);
+/** Última lectura de CPU y memoria; `null` hasta tener una con sentido. */
+const homeStats = ref<{ cpu: number; memory: number; memoryUsedGb: number; memoryTotalGb: number } | null>(null);
+
+/**
+ * Mide CPU y memoria solo mientras su página de la vista de inicio está abierta y a la vista.
+ *
+ * El uso de CPU se calcula entre dos consultas seguidas, así que la primera no
+ * sirve y se descarta: sin eso la barra arrancaría siempre en 0 %.
+ */
+let statsTimer: number | undefined;
+watch(
+  () => expanded.value && showHomeStats.value && homePage.value === "system",
+  (visible) => {
+    if (statsTimer !== undefined) window.clearInterval(statsTimer);
+    statsTimer = undefined;
+    homeStats.value = null;
+    if (!visible) return;
+    let primed = false;
+    const sample = async () => {
+      const stats = await invokeResult<{ cpu: number; memory: number; memoryUsedGb: number; memoryTotalGb: number }>("system_stats");
+      if (!stats) return;
+      if (primed) homeStats.value = { cpu: stats.cpu, memory: stats.memory, memoryUsedGb: stats.memoryUsedGb, memoryTotalGb: stats.memoryTotalGb };
+      primed = true;
+    };
+    void sample();
+    statsTimer = window.setInterval(sample, 1500);
+  },
+  { immediate: true },
+);
 
 onMounted(async () => {
   const stored = await invokeResult<{
     skipSeconds?: number;
     position?: Alignment;
     collapsedStyle?: CollapsedStyle;
+    islandStyle?: IslandStyle;
     homeSeconds?: boolean;
+    homeStats?: boolean;
+    audioVisualizer?: boolean;
+    weather?: boolean;
+    weatherCity?: string;
+    speedtest?: boolean;
+    hoverOpen?: boolean;
+    notifications?: boolean;
+    notifyTrack?: boolean;
   }>("settings_get");
   if (stored?.homeSeconds !== undefined) homeSeconds.value = stored.homeSeconds;
+  if (stored?.hoverOpen !== undefined) hoverOpen.value = stored.hoverOpen;
+  if (stored?.notifications !== undefined) notificationsOn.value = stored.notifications;
+  if (stored?.notifyTrack !== undefined) trackNoticeOn.value = stored.notifyTrack;
+  if (stored?.homeStats !== undefined) showHomeStats.value = stored.homeStats;
+  if (stored?.audioVisualizer !== undefined) audioOn.value = stored.audioVisualizer;
+  if (stored?.weather !== undefined) weatherOn.value = stored.weather;
+  if (stored?.weatherCity !== undefined) weatherCity.value = stored.weatherCity;
+  if (stored?.speedtest !== undefined) speedtestOn.value = stored.speedtest;
   if (stored?.skipSeconds) skipSeconds.value = stored.skipSeconds;
   if (stored?.position) alignment.value = stored.position;
   if (stored?.collapsedStyle) collapsedStyle.value = stored.collapsedStyle;
+  if (stored?.islandStyle) islandStyle.value = stored.islandStyle;
 
   // El primer intento de redimensionar ocurre antes de que la API de Tauri
   // esté cargada, así que se repite aquí ya con el módulo disponible.
@@ -425,16 +973,55 @@ onMounted(async () => {
   // Los ajustes pueden cambiar mientras la isla está abierta.
   try {
     const { listen } = await import("@tauri-apps/api/event");
+    // Rust avisa cuando el cursor está en la franja de encima de la isla: esa franja
+    // queda fuera de la ventana y la página no ve el ratón sobre ella. Mientras esté
+    // ahí, la isla no se recoge; al salir de ella sin volver a la isla, sí.
+    await listen<{ r: number; g: number; b: number }>("island://backdrop", (event) => {
+      ring.value = `rgb(${event.payload.r}, ${event.payload.g}, ${event.payload.b})`;
+    });
+    await listen<{ inside: boolean }>("island://gap", (event) => {
+      inGap = event.payload.inside;
+      if (inGap) {
+        clearHoverTimer();
+        // Con la isla cerrada y flotando, la franja de encima también abre al acercar el ratón: es parte de
+        // la isla, y si no, subir hasta el borde no haría nada.
+        if (!expanded.value && hoverOpen.value && !notice.value) {
+          hoverTimer = window.setTimeout(() => {
+            if (notice.value || expanded.value) return;
+            openedByHover = true;
+            expanded.value = true;
+          }, 140);
+        }
+      } else if (!overIsland) collapseIfHoverOpened();
+    });
     await listen<{
       skipSeconds?: number;
       position?: Alignment;
       collapsedStyle?: CollapsedStyle;
+      islandStyle?: IslandStyle;
       homeSeconds?: boolean;
+      homeStats?: boolean;
+      audioVisualizer?: boolean;
+      weather?: boolean;
+      weatherCity?: string;
+      speedtest?: boolean;
+      hoverOpen?: boolean;
+      notifications?: boolean;
+      notifyTrack?: boolean;
     }>("settings://changed", (event) => {
+      if (event.payload?.hoverOpen !== undefined) hoverOpen.value = event.payload.hoverOpen;
+      if (event.payload?.notifications !== undefined) notificationsOn.value = event.payload.notifications;
+      if (event.payload?.notifyTrack !== undefined) trackNoticeOn.value = event.payload.notifyTrack;
+      if (event.payload?.homeStats !== undefined) showHomeStats.value = event.payload.homeStats;
+      if (event.payload?.audioVisualizer !== undefined) audioOn.value = event.payload.audioVisualizer;
+      if (event.payload?.weather !== undefined) weatherOn.value = event.payload.weather;
+      if (event.payload?.weatherCity !== undefined) weatherCity.value = event.payload.weatherCity;
+      if (event.payload?.speedtest !== undefined) speedtestOn.value = event.payload.speedtest;
       if (event.payload?.homeSeconds !== undefined) homeSeconds.value = event.payload.homeSeconds;
       if (event.payload?.skipSeconds) skipSeconds.value = event.payload.skipSeconds;
       if (event.payload?.position) alignment.value = event.payload.position;
       if (event.payload?.collapsedStyle) collapsedStyle.value = event.payload.collapsedStyle;
+      if (event.payload?.islandStyle) islandStyle.value = event.payload.islandStyle;
     });
   } catch {
     // Fuera de Tauri no hay eventos que escuchar.
@@ -473,22 +1060,30 @@ function scrubTo(ratio: number) {
        Sin relleno superior: cuelga del borde de la pantalla y su primer píxel es
        también el primero de la ventana. -->
   <div class="island-stage box-border grid h-screen w-screen items-start pt-0" :class="stageAlignment">
-    <div class="island-wrap">
+    <div class="island-wrap" :class="{ 'expanded-round': islandStyle === 'round', 'collapsed-round': islandStyle === 'round' }" :style="{ '--morph': `${morphMs}ms`, '--art-accent': artAccent || undefined, '--island-ring': ring }">
       <!-- Tinte de la carátula sobre cada muesca. El relleno base de las
            muescas es negro, y sin esto quedan como dos parches oscuros a los
            lados de una isla coloreada. -->
-      <template v-if="trackArtwork">
+      <!-- Cambian con el mismo fundido que el fondo de la píldora: si no, las
+           muescas saltarían de color mientras el resto se funde. -->
+      <Transition name="art-fade">
         <div
+          v-if="trackArtwork"
+          :key="`l${trackArtwork}`"
           class="notch-art notch-art-left"
           :style="{ '--art': `url(${trackArtwork})` }"
           aria-hidden="true"
         ></div>
+      </Transition>
+      <Transition name="art-fade">
         <div
+          v-if="trackArtwork"
+          :key="`r${trackArtwork}`"
           class="notch-art notch-art-right"
           :style="{ '--art': `url(${trackArtwork})` }"
           aria-hidden="true"
         ></div>
-      </template>
+      </Transition>
     <TheIsland
       :mode="displayMode"
       :notice="notice"
@@ -514,12 +1109,25 @@ function scrubTo(ratio: number) {
       :can-seek="canSeek"
       :skip-seconds="skipSeconds"
       :home-seconds="homeSeconds"
+      :home-stats="homeStats"
+      :privacy="privacy"
+      :downloading="downloading"
+      :weather="weather"
+      :speedtest-enabled="speedtestOn"
+      :system-enabled="showHomeStats"
+      :speed="speed"
+      v-model:home-page="homePage"
+      :carousel="true"
+      :has-media="hasMedia"
       :lyrics-available="lyricsAvailable"
       :lyrics-open="lyricsOpen"
       :lyric-lines="lyricLines"
       :format-time="formatTime"
       @island-click="handleIslandClick"
       @island-keydown="handleIslandKeydown"
+      @island-enter="handleIslandEnter"
+      @island-leave="handleIslandLeave"
+      @speedtest="startSpeedtest"
       @choose="mode = $event"
       @toggle-play="media.togglePlay()"
       @next="media.next()"
@@ -607,7 +1215,7 @@ body,
      final: `--notch` cambia de golpe al entrar `.is-expanded`, y sin esta
      transición las muescas parpadean a su tamaño nuevo mientras la isla
      todavía se está moviendo. Misma curva y duración que `.island-morph`. */
-  transition: width 0.58s, height 0.58s, left 0.58s, right 0.58s;
+  transition: width var(--morph, 0.58s), height var(--morph, 0.58s), left var(--morph, 0.58s), right var(--morph, 0.58s);
   /* Misma curva sin rebote que `.island-morph`. */
   transition-timing-function: cubic-bezier(.22, 1, .36, 1);
 }
@@ -644,7 +1252,7 @@ body,
   /* En sincronía con la muesca de debajo: si el relleno negro se redimensiona
      animado y el tinte salta, asoma el negro por los bordes a media
      transición. La opacidad también cambia entre estados (0.4 ↔ 0.22). */
-  transition: width 0.58s, height 0.58s, left 0.58s, right 0.58s, opacity 0.58s;
+  transition: width var(--morph, 0.58s), height var(--morph, 0.58s), left var(--morph, 0.58s), right var(--morph, 0.58s), opacity var(--morph, 0.58s);
   /* Misma curva sin rebote que `.island-morph`. */
   transition-timing-function: cubic-bezier(.22, 1, .36, 1);
 }
@@ -706,6 +1314,56 @@ body,
   --notch: 22px;
   --island-width: 330px;
   --island-height: 108px;
+}
+
+/* La canción presentada mide 54 px de alto: la muesca (22 px) es la del panel, que
+   es lo que Rust usa para cualquier altura de más de 40 px. */
+.island-wrap:has(.island.is-track) {
+  --island-height: 54px;
+}
+
+/* Vista expandida redondeada: sin muescas y con las esquinas de arriba curvas, como
+   las de abajo. `--notch` a 0 las encoge con la misma transición que las crea, así
+   que no desaparecen de golpe; sus tintes de carátula usan la misma variable. Lo
+   replica `Shape::for_size` en lib.rs (notch 0, top_radius 24): si cambias una
+   medida, cambia la otra. Va después de `.is-track` para ganarle en el orden. */
+.island-wrap.expanded-round:has(.island.is-expanded) {
+  --notch: 0px;
+}
+.island-wrap.expanded-round .island.is-expanded {
+  border-top-left-radius: 18px !important;
+  border-top-right-radius: 18px !important;
+}
+/* Y flota: 6 px de separación con el borde de la pantalla (`ROUND_GAP` en lib.rs).
+   Se anima con el tamaño, así que la isla baja mientras se abre y sube al cerrarse. */
+.island-wrap {
+  transition: margin-top var(--morph, 0.58s) cubic-bezier(.22, 1, .36, 1);
+}
+.island-wrap.expanded-round:has(.island.is-expanded) {
+  margin-top: 6px;
+}
+
+/* Vista minimizada redondeada: sin muescas, las cuatro esquinas curvas (radio de media altura: 17 px) y flotando
+   6 px por debajo del borde, como la expandida redondeada. La pestaña mínima solo pierde las muescas y sigue
+   pegada. Lo replica `Shape::for_size` en lib.rs (notch 0, radio 17, top_radius 17, top_offset 6): si cambias
+   una medida, cambia la otra. Son los mismos selectores que los de la expandida, pero para la isla sin abrir. */
+.island-wrap.collapsed-round:not(:has(.island.is-expanded)) {
+  --notch: 0px;
+}
+.island-wrap.collapsed-round .island:not(.is-expanded):not(.is-tab) {
+  border-radius: 17px !important;
+}
+.island-wrap.collapsed-round:not(:has(.island.is-expanded)):not(:has(.island.is-tab)) {
+  margin-top: 6px;
+}
+
+/* Anillo del estilo flotante: 2 px opacos del color del escritorio alrededor de la isla (`--island-ring`, muestreado en
+   Rust). El recorte nativo sube 1 px (`g` en `set_island_region`), así que su borde duro cae sobre el anillo y no se
+   ve, y el suavizado del borde de la isla se hace contra el anillo, un color opaco, en lugar de contra el blanco que
+   hay detrás de los píxeles a medias. Sustituye a la sombra de caída, que el recorte ya cortaba. La pestaña mínima, pegada
+   al borde, no lo lleva. */
+.island-wrap.collapsed-round .island:not(.is-tab) {
+  box-shadow: 0 0 0 2px var(--island-ring) !important;
 }
 
 /* Pestaña mínima: la muesca se reduce a 5 px, porque una de 14 px colgaría por

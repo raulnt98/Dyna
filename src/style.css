@@ -63,7 +63,9 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
    menos bordes), o empuja el contenido y lo descentra. */
 .island-collapsed .waveform { height: 18px; }
 .waveform { height: 17px; display: flex; align-items: center; gap: 2px; }
-.waveform i { width: 2px; border-radius: 3px; background: var(--green); animation: waveform .7s ease-in-out infinite alternate; }
+/* El tono de la onda sale de la carátula (`--art-accent`, lo fija IslandApp.vue); sin
+   carátula, el verde de siempre. Se funde al cambiar de pista en vez de saltar. */
+.waveform i { width: 2px; border-radius: 3px; background: var(--art-accent, var(--green)); transition: background-color .7s ease; animation: waveform .7s ease-in-out infinite alternate; }
 .idle-wave i { animation-duration: 1.4s; opacity: .48; }
 .idle-wave i:nth-child(1) { height: 5px; }
 .idle-wave i:nth-child(2) { height: 9px; }
@@ -177,7 +179,7 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 .island-content { position: relative; z-index: 1; isolation: isolate; }
 .island-collapsed { z-index: 1; isolation: isolate; }
 /* Margen propio para que las barras no toquen el borde redondeado. */
-.heading-wave { flex: 0 0 auto; height: 13px; margin-left: auto; }
+.heading-wave { flex: 0 0 auto; height: 13px; margin-left: 6px; }
 .heading-wave.is-idle i { animation-play-state: paused; opacity: .4; }
 .recording-wave { height: 31px; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 3px; }
 .recording-wave i { width: 2px; height: var(--bar); max-height: 28px; border-radius: 3px; background: linear-gradient(#ff8690,#d64d60); animation: recording-wave .65s ease-in-out infinite alternate; animation-delay: calc(var(--bar) * -.008); }
@@ -216,7 +218,8 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
    detenerse en su tamano final. */
 .island-morph {
   transition-property: width, height, border-radius;
-  transition-duration: .58s;
+  /* `--morph` lo fija IslandApp.vue: más corta para los avisos del sistema. */
+  transition-duration: var(--morph, .58s);
   /* Sin rebote: entra rapido y frena hasta pararse, sin sobrepasar el tamano
      final. La curva de muelle anterior llegaba a 1.03 y volvia, lo que a este
      tamano se percibia como un temblor al final de cada transicion. */
@@ -236,12 +239,115 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 /* Solo opacidad: cualquier desplazamiento se nota como un salto sobre una
    pildora que ya se esta redimensionando. El contenido entra cuando la
    transicion de tamano va por la mitad. */
-.island-content { animation: island-fade-in .3s ease-out .16s both; }
+.island-content { animation: island-fade-in .26s ease-out .12s both; }
 /* Desplazamiento del mensaje largo de una notificacion (ToastMarquee.vue). El
    componente fija --shift (cuanto sobra) y --dur (a velocidad constante). */
 @keyframes toast-marquee { from { transform: translateY(0); } to { transform: translateY(var(--shift)); } }
-@keyframes island-fade-in { from { opacity: 0; } to { opacity: 1; } }
-.island-collapsed { animation: island-fade-in .24s ease-out .1s both; }
+@keyframes island-fade-in { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: blur(0); } }
+.island-collapsed { animation: island-fade-in .2s ease-out .06s both; }
+
+/* --- Esqueleto de carga --- */
+/* Bloque gris con un brillo que lo recorre, para lo que aún no tiene datos. Como el resto
+   de la isla, no se apaga con prefers-reduced-motion (ver la nota de más arriba). */
+.skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,.08) 0%, rgba(255,255,255,.17) 50%, rgba(255,255,255,.08) 100%);
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+/* --- Onda real y marcas de estado --- */
+/* Lo que mide la barra más alta de cada onda cuando sigue el audio de verdad (TheIsland.vue,
+   `barStyle`): sin niveles, las barras se animan solas con sus alturas de siempre. */
+.waveform { --wave-max: 14px; }
+/* Recorrido de las barras vivas según el hueco de cada sitio: la píldora mide 34 px, la fila de arriba del
+   reproductor 34 y la canción presentada 54. Centradas, crecen por los dos lados. */
+.island-collapsed .waveform { --wave-max: 20px; }
+.heading-wave { --wave-max: 22px; }
+.np-wave.is-bar { --wave-max: 22px; }
+/* Micrófono (naranja) y cámara (verde) en uso. Cerrada, a la derecha de la píldora; abierta,
+   arriba en el centro, donde no choca con nada. No reciben el ratón. */
+.privacy-dots { position: absolute; z-index: 7; display: flex; gap: 3px; pointer-events: none; }
+.island:not(.is-expanded) .privacy-dots { right: 8px; top: 50%; transform: translateY(-50%); }
+.island.is-expanded .privacy-dots { left: 50%; top: 5px; transform: translateX(-50%); }
+.island.is-tab .privacy-dots { display: none; }
+.privacy-dot { width: 6px; height: 6px; border-radius: 50%; animation: privacy-pulse 2s ease-in-out infinite; }
+.privacy-dot.is-mic { background: #ff9f43; box-shadow: 0 0 6px rgba(255,159,67,.8); }
+.privacy-dot.is-camera { background: #62d96b; box-shadow: 0 0 6px rgba(98,217,107,.8); }
+@keyframes privacy-pulse { 50% { opacity: .55; } }
+/* Descarga en curso: un destello que recorre el borde de abajo de la píldora. */
+.download-line { position: absolute; z-index: 7; left: 16px; right: 16px; bottom: 3px; height: 2px; overflow: hidden; border-radius: 2px; background: rgba(255,255,255,.12); pointer-events: none; }
+.download-line::after { content: ""; position: absolute; inset: 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, transparent, #6eb4ff, transparent); animation: download-slide 1.3s ease-in-out infinite; }
+@keyframes download-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+/* --- Movimiento: principios --- */
+/* Una sola curva para todo lo que se mueve, la de las hojas de iOS (.32,.72,0,1):
+   arranca rápida y frena larga, sin rebote. Entrar tarda más que salir: lo que
+   se va no necesita lucirse. Lo que entra va escalonado (primero la carátula o el
+   icono, luego el texto) y lo que sale se va entero y antes que la isla se cierre,
+   para que no haya contenido que se corte a medio fundir. Solo opacidad, desenfoque
+   y escala: un desplazamiento se percibe como un salto sobre una píldora que ya se
+   está redimensionando. */
+.notice-panel-enter-active { transition: opacity .36s cubic-bezier(.32,.72,0,1) .08s, filter .36s cubic-bezier(.32,.72,0,1) .08s; }
+.notice-panel-enter-from { opacity: 0; filter: blur(8px); }
+/* Al retirarse, el contenido se desenfoca y se apaga desde el primer fotograma (ease-out:
+   la mayor parte del cambio ocurre al principio) y termina antes de que la isla acabe
+   de cerrarse (0,34 s), así no queda nada nítido encogiéndose. */
+.notice-panel-leave-active { transition: opacity .2s ease-out, filter .2s ease-out; }
+.notice-panel-leave-to { opacity: 0; filter: blur(10px); }
+.np-lead { transition: transform .6s cubic-bezier(.32,.72,0,1) .08s; }
+.notice-panel-enter-from .np-lead { transform: scale(.7); }
+.np-copy > * { transition: opacity .42s cubic-bezier(.32,.72,0,1) .17s, filter .42s cubic-bezier(.32,.72,0,1) .17s; }
+.np-copy > :nth-child(n+2) { transition-delay: .24s; }
+.notice-panel-enter-from .np-copy > * { opacity: 0; filter: blur(5px); }
+.np-bar { transition: opacity .42s cubic-bezier(.32,.72,0,1) .26s; }
+.notice-panel-enter-from .np-bar { opacity: 0; }
+.np-wave.is-bar { height: 13px; }
+.np-wave { flex: none; margin-left: 2px; transition: opacity .4s ease .3s; }
+.notice-panel-enter-from .np-wave { opacity: 0; }
+/* El contenido de la isla abierta se retira antes de que ella se cierre. Absoluto
+   mientras sale, para que el que entra no se desplace por culpa del que se va. */
+/* Con animación y no con transición: `.island-content` ya tiene una animación de entrada
+   con relleno («both»), y una animación pisa a cualquier transición de las mismas
+   propiedades, así que la salida no se veía. El selector doble le gana en especificidad
+   a la regla de `.island-content` que viene después. Arranca en el primer fotograma del
+   cierre y termina antes de que la isla acabe de encogerse. */
+.island-content.content-leave-active { position: absolute; top: 0; left: 0; right: 0; animation: content-out .16s ease-out both; }
+.island-collapsed.collapsed-leave-active { animation: content-out .14s ease-out both; }
+@keyframes content-out { from { opacity: 1; filter: blur(0); } to { opacity: 0; filter: blur(9px); } }
+
+/* --- Cambio de pista --- */
+/* La carátula gira y se desenfoca al salir, y la nueva entra girando al revés
+   (ArtSwap.vue). La curva es la de las hojas de iOS: arranca rápida y frena larga.
+   Un destello blanco breve une las dos, que es lo que hace que el cambio se lea
+   como una sola cosa y no como dos imágenes que se cruzan. */
+.art-swap { position: relative; display: block; width: 100%; height: 100%; }
+.art-swap-layer { position: absolute; inset: 0; }
+.art-swap-enter-active, .art-swap-leave-active {
+  transition: transform .6s cubic-bezier(.32,.72,0,1), filter .5s ease, opacity .45s ease;
+}
+.art-swap-enter-from { opacity: 0; filter: blur(8px) brightness(1.8); transform: rotate(-110deg) scale(.55); }
+.art-swap-leave-to { opacity: 0; filter: blur(8px); transform: rotate(110deg) scale(.55); }
+.art-flash {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle at 50% 45%, #fff 0, rgba(255,255,255,.55) 55%, transparent 100%);
+  filter: blur(3px);
+  animation: art-flash .6s ease-out both;
+}
+@keyframes art-flash { 0% { opacity: 0; } 22% { opacity: .85; } 100% { opacity: 0; } }
+/* Texto: se desenfoca y se desvanece en el sitio, sin desplazarse. Va por orden
+   (sale uno, entra el otro), así que cada mitad dura poco. */
+.txt-swap-enter-active, .txt-swap-leave-active { transition: opacity .17s ease, filter .17s ease; }
+.txt-swap-enter-from, .txt-swap-leave-to { opacity: 0; filter: blur(5px); }
+/* Fondo tintado y muescas: fundido cruzado. Con animación y no con transición porque
+   su opacidad final depende del estado (.4 abierta, .22 cerrada) y una animación sin
+   `to` termina en lo que valga en ese momento. */
+.art-fade-enter-active { animation: art-fade-in .7s ease both; }
+.art-fade-leave-active { animation: art-fade-out .7s ease both; }
+@keyframes art-fade-in { from { opacity: 0; } }
+@keyframes art-fade-out { to { opacity: 0; } }
 
 /* --- Transicion sin cortes --- */
 /* El contenido no debe encogerse con la pildora durante la animacion: se le

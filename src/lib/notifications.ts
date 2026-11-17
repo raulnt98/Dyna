@@ -9,7 +9,7 @@
 import { computed, onUnmounted, ref } from "vue";
 
 /** Tipos de aviso que la isla sabe dibujar. */
-export type NoticeKind = "power" | "volume" | "battery" | "toast" | "wifi" | "internet";
+export type NoticeKind = "power" | "volume" | "battery" | "toast" | "wifi" | "internet" | "bluetooth" | "bluetooth-off" | "usb" | "caps" | "num" | "focus" | "brightness" | "track" | "mic" | "camera" | "download" | "speed";
 
 export interface Notice {
   /** Identifica al emisor: dos avisos del mismo tipo se reemplazan, no se encolan. */
@@ -34,8 +34,8 @@ const MAX_STACKED = 5;
 /**
  * Tiempo mínimo que un aviso permanece visible aunque llegue otro detrás.
  *
- * La isla tarda ~0.58 s en abrirse y otro tanto en cerrarse: relevar un aviso
- * antes de eso lo dejaría a medio dibujar.
+ * Un aviso tarda ~0.4 s en abrirse y ~0.34 s en cerrarse: relevarlo antes de
+ * eso lo dejaría a medio dibujar. El mínimo deja además un rato para leerlo.
  */
 const MIN_VISIBLE_MS = 1200;
 
