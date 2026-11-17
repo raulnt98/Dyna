@@ -23,6 +23,8 @@ export interface MediaState {
   canSeek: boolean;
   /** Carátula como data URI; cadena vacía si la pista no tiene. */
   artwork: string;
+  /** Solo en los eventos: la carátula no cambió y va vacía; se conserva la que ya había. */
+  artworkKept?: boolean;
 }
 
 const MEDIA_EVENT = "smtc://media-changed";
@@ -77,7 +79,7 @@ export function useSystemMedia() {
     const { listen } = await import("@tauri-apps/api/event");
 
     const commit = (incoming: MediaState) => {
-      state.value = incoming;
+      state.value = incoming.artworkKept ? { ...incoming, artwork: state.value.artwork, artworkKept: false } : incoming;
       live.value = incoming.hasSession;
     };
     // Al cambiar de pista, los reproductores web (YouTube Music en Brave o Chrome) pasan un instante por un estado

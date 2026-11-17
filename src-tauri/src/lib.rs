@@ -1060,7 +1060,13 @@ pub fn run() {
                         || (current.position - last.position).abs() > 0.08;
 
                     if changed {
-                        let _ = handle.emit(MEDIA_EVENT, current.clone());
+                        // Con la misma carátula que el evento anterior no se reenvía (ver `artwork_kept`).
+                        let mut payload = current.clone();
+                        if !last.artwork.is_empty() && payload.artwork == last.artwork {
+                            payload.artwork.clear();
+                            payload.artwork_kept = true;
+                        }
+                        let _ = handle.emit(MEDIA_EVENT, payload);
                         last = current;
                     }
                     // 250 ms: la letra de karaoke necesita más resolución que

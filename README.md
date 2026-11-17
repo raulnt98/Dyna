@@ -33,6 +33,10 @@ Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
 
+### Novedades de la 0.4.3
+
+- **Mucho menos consumo con música sonando:** la carátula ya no se reenvía a la ventana cada vez que avanza la posición (cuatro veces por segundo), y el gestor de medios de Windows se reutiliza en lugar de pedir uno nuevo cada 250 ms, lo que acumulaba cientos de hilos.
+
 ### Novedades de la 0.4.2
 
 - **YouTube Music:** al cambiar de canción ya no aparece «Sin reproducción» ni el icono del navegador entre las dos.

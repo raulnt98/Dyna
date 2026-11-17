@@ -415,6 +415,8 @@ el aviso se actualiza en el sitio. El panel desplegado admite `data.art` en luga
 abierta y a la vista: `IslandApp.vue` consulta cada 1,5 s y descarta la primera lectura,
 porque el uso de CPU se calcula entre dos consultas seguidas.
 
+**La carátula no se reenvía en cada evento** (`artwork_kept` en `MediaState`, lib.rs y `media.ts`): es un data URI de cientos de kB y el estado se emite hasta 4 veces por segundo al avanzar la posición; reenviarlo era la mayor fuente de CPU (la app llegó a 12 % con música sonando). Si es igual a la del evento anterior va vacía con `artworkKept: true` y el frontend conserva la que tenía; `media_state` la manda siempre entera. El manager de SMTC también se guarda (`manager()` en smtc.rs) en vez de pedir uno nuevo cada 250 ms, que acumulaba cientos de hilos.
+
 **Un estado vacío entre dos pistas se retiene 2,5 s** (`apply` en `media.ts`, `EMPTY_HOLD_MS`): YouTube Music en Brave pasa por «sin título» y el icono del navegador al cambiar de canción, y enseñarlo se veía como «Sin reproducción» entre las dos. Es previo al margen de `hasMedia`, que sigue ahí para la isla.
 
 **Perder los medios tiene 3 s de margen** (`hasMedia` sobre `mediaPresent`, `MEDIA_LOSS_GRACE_MS`, IslandApp.vue): al cambiar de pista SMTC pasa un instante sin sesión o con sesión vacía (según equipo y reproductor), y sin margen la isla saltaba a la hora. Ganarlos es inmediato.

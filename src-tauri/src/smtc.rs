@@ -26,6 +26,11 @@ pub struct MediaState {
     pub can_seek: bool,
     /// Carátula como data URI listo para un `<img>`, vacío si no hay ninguna.
     pub artwork: String,
+    /// Solo en los eventos: `true` si la carátula es la misma que la del evento anterior y por eso va vacía. Es un
+    /// data URI de cientos de kB; reenviarlo cuatro veces por segundo (cada vez que avanza la posición) era la
+    /// mayor fuente de CPU de la app, entre serializarlo y que la ventana lo reanalizara. El frontend conserva la
+    /// que ya tenía. `media_state` siempre la manda entera.
+    pub artwork_kept: bool,
 }
 
 /// Nombre del evento que recibe el frontend cuando cambia la reproducción.
@@ -215,8 +220,21 @@ mod imp {
     /// Obtiene el manager de SMTC bloqueando hasta que esté listo.
     ///
     /// `RequestAsync` es asíncrono en WinRT; `join()` espera el resultado.
+    ///
+    /// Se guarda y se reutiliza: se llama cada 250 ms y pedir uno nuevo cada vez crea objetos y hilos del sistema
+    /// que se acumulaban (cientos de hilos tras un rato con música sonando).
     fn manager() -> windows::core::Result<Manager> {
-        Manager::RequestAsync()?.join()
+        static MANAGER: Mutex<Option<Manager>> = Mutex::new(None);
+        if let Ok(guard) = MANAGER.lock() {
+            if let Some(manager) = guard.as_ref() {
+                return Ok(manager.clone());
+            }
+        }
+        let manager = Manager::RequestAsync()?.join()?;
+        if let Ok(mut guard) = MANAGER.lock() {
+            *guard = Some(manager.clone());
+        }
+        Ok(manager)
     }
 
     /// Segundos transcurridos desde un instante de WinRT hasta ahora.
