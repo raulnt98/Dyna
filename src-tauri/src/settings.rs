@@ -71,6 +71,9 @@ pub struct Settings {
     pub weather: bool,
     /// Ciudad para el tiempo, tal como la escribe el usuario.
     pub weather_city: String,
+    /// Coordenadas de la ciudad elegida de la lista o de la ubicación actual; sin ellas se busca por nombre.
+    pub weather_lat: Option<f64>,
+    pub weather_lon: Option<f64>,
     /// Mostrar el botón de test de velocidad en la vista de inicio. Solo mide al pulsarlo.
     pub speedtest: bool,
     /// Pantalla donde cuelga la isla: 0 es la principal; n ≥ 1, la n-ésima que informe Windows.
@@ -136,6 +139,8 @@ impl Default for Settings {
             audio_visualizer: false,
             weather: false,
             weather_city: String::new(),
+            weather_lat: None,
+            weather_lon: None,
             speedtest: true,
             monitor: 0,
             autostart: false,

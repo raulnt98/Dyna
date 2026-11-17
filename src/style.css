@@ -294,9 +294,9 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 .notice-panel-enter-from { opacity: 0; filter: blur(8px); }
 /* Al retirarse, el contenido se desenfoca y se apaga desde el primer fotograma (ease-out:
    la mayor parte del cambio ocurre al principio) y termina antes de que la isla acabe
-   de cerrarse (0,34 s), así no queda nada nítido encogiéndose. */
-.notice-panel-leave-active { transition: opacity .2s ease-out, filter .2s ease-out; }
-.notice-panel-leave-to { opacity: 0; filter: blur(10px); }
+   de cerrarse (0,46 s; con 0,34 s y un fundido de 0,2 s se sentía brusco), así no queda nada nítido encogiéndose. */
+.notice-panel-leave-active { transition: opacity .34s cubic-bezier(.32,.72,0,1), filter .34s cubic-bezier(.32,.72,0,1), transform .4s cubic-bezier(.32,.72,0,1); }
+.notice-panel-leave-to { opacity: 0; filter: blur(7px); transform: scale(.97); }
 .np-lead { transition: transform .6s cubic-bezier(.32,.72,0,1) .08s; }
 .notice-panel-enter-from .np-lead { transform: scale(.7); }
 .np-copy > * { transition: opacity .42s cubic-bezier(.32,.72,0,1) .17s, filter .42s cubic-bezier(.32,.72,0,1) .17s; }

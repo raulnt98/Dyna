@@ -89,7 +89,7 @@ error de compilación.
 | Alimentación | `power_state` | `power.rs` |
 | Sistema | `system_stats` | `sysstats.rs` |
 | Ventana | `monitors_list` | `lib.rs` |
-| Tiempo | `weather_current` | `weather.rs` |
+| Tiempo | `weather_current`, `weather_search`, `weather_locate_here` | `weather.rs` |
 | Red | `speedtest_run` | `speedtest.rs` |
 | Notificaciones | `toast_open`, `toasts_access`, `toasts_open_privacy` | `toasts.rs` |
 
@@ -221,7 +221,7 @@ de golpe asoma una forma vieja durante los 0,58 s del CSS. `animate_island`
 (`lib.rs`) lo interpola en un hilo con la misma curva y duración que
 `.island-morph`, y `island_resize` se avisa a la vez que arranca el CSS, al
 crecer y al encoger. La duración no es fija: 0,58 s cuando abre o cierra el usuario, 0,40 s cuando un
-aviso del sistema abre la isla y 0,34 s cuando se retira. `IslandApp.vue` la fija en la variable
+aviso del sistema abre la isla y 0,46 s cuando se retira. `IslandApp.vue` la fija en la variable
 CSS `--morph` (píldora y muescas) y la pasa a `island_resize` (`duration_ms`) en la misma llamada:
 las dos deben coincidir, o el recorte asoma por detrás de la píldora. El recorte **no debe ir por delante** de la píldora (se
 vería una franja pálida) y las medidas de muesca y radio replican las del CSS:
@@ -347,6 +347,8 @@ Reproductor abierto: margen 13 → carátula de 34 px con radio 5. Canción pres
 llevaba 24 y las carátulas 11 y 14: se veía demasiado redondo y la curva de la isla acababa dentro del alto de la carátula.)
 Si cambias el margen o el radio de la isla, recalcula el de la carátula.
 
+**El selector de ciudad** (ajustes → vista de inicio) busca con `weather_search` (Open-Meteo, solo con el ajuste `weather` activo) y guarda `weatherLat`/`weatherLon`; escribir a mano los borra y se vuelve a buscar por nombre. «Usar mi ubicación» (`weather_locate_here`) usa el `Geolocator` de Windows, no la IP; el error `denied` significa permiso de ubicación apagado en Windows. El formato de la hora es un selector sobre el booleano `homeSeconds`.
+
 **Tiempo (`weather.rs`) y test de velocidad (`speedtest.rs`) salen a la red** y cada uno tiene su interruptor (`weather`, apagado por
 defecto; `speedtest`, activo pero solo mide al pulsar). El tiempo envía a Open-Meteo solo la ciudad que el usuario escribió (para
 buscar coordenadas) y esas coordenadas; los servidores van fijos en el código y la ciudad es solo un parámetro de consulta. Sin
@@ -412,6 +414,8 @@ el aviso se actualiza en el sitio. El panel desplegado admite `data.art` en luga
 **La vista de inicio mide CPU y memoria** (`homeStats`, `system_stats`) solo mientras está
 abierta y a la vista: `IslandApp.vue` consulta cada 1,5 s y descarta la primera lectura,
 porque el uso de CPU se calcula entre dos consultas seguidas.
+
+**Perder los medios tiene 3 s de margen** (`hasMedia` sobre `mediaPresent`, `MEDIA_LOSS_GRACE_MS`, IslandApp.vue): al cambiar de pista SMTC pasa un instante sin sesión o con sesión vacía (según equipo y reproductor), y sin margen la isla saltaba a la hora. Ganarlos es inmediato.
 
 **Sin medios, la isla muestra la vista de inicio (`home`).** `displayMode` en `IslandApp.vue` cambia
 `music` por `home` cuando no hay sesión SMTC, o hay una vacía y parada; una pista en pausa

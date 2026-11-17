@@ -3,7 +3,8 @@
 //! **Sale a la red**, así que tiene su propio ajuste (`weather`, apagado por defecto) y su
 //! línea en el README. Se envía a Open-Meteo solo la ciudad que el usuario escribió en los
 //! ajustes (para buscar sus coordenadas) y esas coordenadas (para pedir el tiempo): no se usa
-//! la ubicación del equipo ni se manda nada más. El servicio no pide clave ni cuenta.
+//! la ubicación del equipo salvo que el usuario pulse «Usar mi ubicación» (servicio de ubicación de Windows, no por IP); entonces
+//! se guardan sus coordenadas en los ajustes y esas coordenadas son lo que se envía. El servicio no pide clave ni cuenta.
 //!
 //! Los servidores son los de `GEOCODING` y `FORECAST`, fijos: la ciudad solo va como
 //! parámetro de consulta, nunca como parte de la dirección. Sin redirecciones, con tiempo
@@ -95,8 +96,100 @@ fn locate(city: &str) -> Option<(f64, f64, String)> {
     Some((lat, lon, name))
 }
 
+/// Un sitio candidato para el selector de ciudad de los ajustes.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Place {
+    pub name: String,
+    /// Región o provincia y país, para distinguir homónimos («Santiago, Región Metropolitana, Chile»).
+    pub detail: String,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+/// Busca ciudades por nombre para que el usuario elija una. Envía a Open-Meteo solo lo escrito, y solo con el
+/// ajuste del tiempo activo (es una salida a la red como el resto).
+#[tauri::command(async)]
+pub fn weather_search(query: String) -> Vec<Place> {
+    let query = query.trim().to_string();
+    if !crate::settings::current().weather || query.chars().count() < 2 || query.chars().count() > 60 {
+        return Vec::new();
+    }
+    let Ok(mut response) = agent()
+        .get(GEOCODING)
+        .query("name", &query)
+        .query("count", "6")
+        .query("language", "es")
+        .call()
+    else {
+        return Vec::new();
+    };
+    let Ok(value) = response.body_mut().read_json::<serde_json::Value>() else {
+        return Vec::new();
+    };
+    let Some(results) = value.get("results").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    results
+        .iter()
+        .filter_map(|item| {
+            let text = |key: &str| item.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let detail = [text("admin1"), text("country")]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ");
+            Some(Place {
+                name: item.get("name")?.as_str()?.to_string(),
+                detail,
+                lat: item.get("latitude")?.as_f64()?,
+                lon: item.get("longitude")?.as_f64()?,
+            })
+        })
+        .collect()
+}
+
+/// Ubicación actual del equipo, por el servicio de ubicación de Windows (no por IP). El error es `denied` si
+/// Windows no deja a la app leerla (Configuración → Privacidad → Ubicación) o `unavailable` si no hay manera de
+/// calcularla. Las coordenadas solo se guardan en los ajustes, en local; a la red va lo mismo que con una ciudad
+/// elegida: esas coordenadas, para pedir el tiempo.
+#[tauri::command(async)]
+pub fn weather_locate_here() -> Result<Place, String> {
+    #[cfg(windows)]
+    {
+        use windows::Devices::Geolocation::{GeolocationAccessStatus, Geolocator};
+        let access = Geolocator::RequestAccessAsync()
+            .and_then(|op| op.join())
+            .map_err(|_| "unavailable".to_string())?;
+        if access != GeolocationAccessStatus::Allowed {
+            return Err("denied".into());
+        }
+        let position = Geolocator::new()
+            .and_then(|g| g.GetGeopositionAsync())
+            .and_then(|op| op.join())
+            .and_then(|p| p.Coordinate())
+            .and_then(|c| c.Point())
+            .and_then(|p| p.Position())
+            .map_err(|_| "unavailable".to_string())?;
+        Ok(Place {
+            name: "Mi ubicación".into(),
+            detail: "Ubicación actual".into(),
+            lat: position.Latitude,
+            lon: position.Longitude,
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        Err("unavailable".into())
+    }
+}
+
 fn fetch(city: &str) -> Option<Weather> {
     let (lat, lon, name) = locate(city)?;
+    fetch_at(lat, lon, name)
+}
+
+fn fetch_at(lat: f64, lon: f64, name: String) -> Option<Weather> {
     let mut response = agent()
         .get(FORECAST)
         .query("latitude", format!("{lat:.4}"))
@@ -141,16 +234,25 @@ pub fn weather_current() -> Option<Weather> {
     if !config.weather || city.is_empty() {
         return None;
     }
+    // Con coordenadas guardadas (ciudad elegida de la lista o ubicación actual) no hace falta buscar por nombre.
+    let coords = config.weather_lat.zip(config.weather_lon);
+    let city_key = match coords {
+        Some((lat, lon)) => format!("{city}@{lat:.4},{lon:.4}"),
+        None => city.clone(),
+    };
     if let Ok(last) = LAST.lock() {
         if let Some((cached_city, at, weather)) = last.as_ref() {
-            if *cached_city == city && at.elapsed() < CACHE_FOR {
+            if *cached_city == city_key && at.elapsed() < CACHE_FOR {
                 return Some(weather.clone());
             }
         }
     }
-    let weather = fetch(&city)?;
+    let weather = match coords {
+        Some((lat, lon)) => fetch_at(lat, lon, city.split(',').next().unwrap_or(&city).trim().to_string())?,
+        None => fetch(&city)?,
+    };
     if let Ok(mut last) = LAST.lock() {
-        *last = Some((city, Instant::now(), weather.clone()));
+        *last = Some((city_key, Instant::now(), weather.clone()));
     }
     Some(weather)
 }

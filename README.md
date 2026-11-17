@@ -33,6 +33,12 @@ Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
 
+### Novedades de la 0.4.1
+
+- **Ciudad del tiempo con selector:** busca y elige entre coincidencias (con región y país), o pulsa **Usar mi ubicación** (servicio de ubicación de Windows; las coordenadas se guardan solo en tus ajustes y se envían a Open-Meteo para pedir el tiempo).
+- **Formato de la hora:** `hh:mm:ss` o `hh:mm`, en lugar del interruptor de segundos.
+- La presentación de la canción se cierra más suave y ya no salta a la hora al cambiar de pista.
+
 ### Novedades de la 0.4.0
 
 - **Avisos nuevos:** Bluetooth, unidades USB, Bloq Mayús/Num, No molestar, brillo, micrófono y cámara en uso, y descargas del navegador. Cada uno con su interruptor.

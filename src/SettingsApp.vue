@@ -60,6 +60,9 @@ interface Settings {
   /** Tiempo en la vista de inicio, y la ciudad que se consulta. */
   weather: boolean;
   weatherCity: string;
+  /** Coordenadas de la ciudad elegida o de la ubicación actual; sin ellas se busca por nombre. */
+  weatherLat: number | null;
+  weatherLon: number | null;
   /** Botón de test de velocidad en la vista de inicio. */
   speedtest: boolean;
   /** Pantalla de la isla: 0 es la principal. */
@@ -98,6 +101,8 @@ const DEFAULTS: Settings = {
   audioVisualizer: false,
   weather: false,
   weatherCity: "",
+  weatherLat: null,
+  weatherLon: null,
   speedtest: true,
   monitor: 0,
 };
@@ -168,6 +173,66 @@ async function loadMonitors() {
 }
 const saved = ref(false);
 let loading = true;
+
+/** Formato de la hora de la vista de inicio: `homeSeconds` sigue siendo un booleano en el archivo de ajustes. */
+const timeFormat = computed<string>({
+  get: () => (settings.value.homeSeconds ? "hms" : "hm"),
+  set: (value) => {
+    settings.value.homeSeconds = value === "hms";
+  },
+});
+
+interface Place {
+  name: string;
+  detail: string;
+  lat: number;
+  lon: number;
+}
+const places = ref<Place[]>([]);
+const locating = ref(false);
+const locateError = ref("");
+let searchTimer: number | undefined;
+
+/** Escribir en el campo de ciudad: descarta las coordenadas anteriores y busca coincidencias al dejar de teclear. */
+function onCityInput() {
+  settings.value.weatherLat = null;
+  settings.value.weatherLon = null;
+  locateError.value = "";
+  window.clearTimeout(searchTimer);
+  const query = settings.value.weatherCity.trim();
+  if (query.length < 2) {
+    places.value = [];
+    return;
+  }
+  searchTimer = window.setTimeout(async () => {
+    const found = await call<Place[]>("weather_search", { query });
+    if (settings.value.weatherCity.trim() === query) places.value = found ?? [];
+  }, 350);
+}
+
+function pickPlace(place: Place) {
+  settings.value.weatherCity = place.detail ? `${place.name}, ${place.detail}` : place.name;
+  settings.value.weatherLat = place.lat;
+  settings.value.weatherLon = place.lon;
+  places.value = [];
+}
+
+async function useMyLocation() {
+  locating.value = true;
+  locateError.value = "";
+  places.value = [];
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    pickPlace(await invoke<Place>("weather_locate_here"));
+  } catch (error) {
+    locateError.value =
+      error === "denied"
+        ? "Windows no deja leer la ubicación. Actívala en Configuración → Privacidad y seguridad → Ubicación."
+        : "No se pudo obtener la ubicación.";
+  } finally {
+    locating.value = false;
+  }
+}
 
 /** Llama a un comando de Tauri, ignorando el fallo fuera de la app. */
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T | undefined> {
@@ -359,11 +424,20 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
     <section>
       <h2 :class="H2">Vista de inicio</h2>
       <div :class="PANEL">
-        <SettingsToggle
-          v-model="settings.homeSeconds"
-          name="Segundos en la hora"
-          desc="Muestra los segundos en la hora que enseña la isla cuando no hay nada sonando."
-        />
+        <div :class="ROW">
+          <label class="grid min-w-0 gap-0.5" for="time-format">
+            <span class="font-medium">Formato de la hora</span>
+            <span :class="DESC">Cómo se ve la hora en la isla cuando no hay nada sonando.</span>
+          </label>
+          <SettingsSelect
+            id="time-format"
+            v-model="timeFormat"
+            :options="[
+              { value: 'hms', label: 'hh:mm:ss' },
+              { value: 'hm', label: 'hh:mm' },
+            ]"
+          />
+        </div>
 
         <SettingsToggle
           v-model="settings.homeStats"
@@ -377,18 +451,43 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
           desc="Temperatura y estado del cielo junto a la fecha. Envía la ciudad que escribas aquí a Open-Meteo para consultarlo."
         />
 
-        <div :class="ROW" class="pl-7" :style="{ opacity: settings.weather ? 1 : 0.42 }">
-          <label class="grid min-w-0 gap-0.5" for="weather-city"><span class="font-[450]">Ciudad</span></label>
-          <input
-            id="weather-city"
-            v-model.trim="settings.weatherCity"
-            :disabled="!settings.weather"
-            type="text"
-            maxlength="60"
-            placeholder="Santiago"
-            autocomplete="off"
-            class="w-[170px] rounded-[7px] border border-white/7 bg-[#1a1d27] px-3 py-1.5 text-ink outline-none transition-[border-color] duration-150 placeholder:text-[#5c5f6e] hover:border-white/16 focus-visible:border-accent"
-          />
+        <div class="grid gap-2 px-3.5 py-[11px] pl-7" :style="{ opacity: settings.weather ? 1 : 0.42 }">
+          <div class="flex items-center justify-between gap-4">
+            <label class="grid min-w-0 gap-0.5" for="weather-city"><span class="font-[450]">Ciudad</span></label>
+            <input
+              id="weather-city"
+              v-model.trim="settings.weatherCity"
+              :disabled="!settings.weather"
+              type="text"
+              maxlength="60"
+              placeholder="Busca una ciudad"
+              autocomplete="off"
+              class="w-[200px] rounded-[7px] border border-white/7 bg-[#1a1d27] px-3 py-1.5 text-ink outline-none transition-[border-color] duration-150 placeholder:text-[#5c5f6e] hover:border-white/16 focus-visible:border-accent"
+              @input="onCityInput"
+            />
+          </div>
+          <ul v-if="places.length" class="m-0 grid list-none gap-px overflow-hidden rounded-[8px] border border-line bg-line p-0">
+            <li v-for="place in places" :key="`${place.lat},${place.lon}`" class="bg-panel">
+              <button
+                type="button"
+                class="grid w-full cursor-pointer gap-0.5 border-0 bg-transparent px-3 py-2 text-left text-ink transition-colors hover:bg-white/5"
+                @click="pickPlace(place)"
+              >
+                <span class="font-[450]">{{ place.name }}</span>
+                <span :class="DESC">{{ place.detail }}</span>
+              </button>
+            </li>
+          </ul>
+          <div class="flex items-center justify-between gap-4">
+            <span :class="DESC">{{ settings.weatherLat !== null ? "Ciudad fijada con sus coordenadas." : "Elige una de la lista, o usa tu ubicación." }}</span>
+            <button
+              type="button"
+              :disabled="!settings.weather || locating"
+              class="shrink-0 cursor-pointer rounded-[7px] border border-white/7 bg-[#1a1d27] px-3 py-1.5 text-ink transition-[border-color] duration-150 hover:border-white/16 disabled:cursor-default disabled:opacity-60"
+              @click="useMyLocation"
+            >{{ locating ? "Buscando…" : "Usar mi ubicación" }}</button>
+          </div>
+          <p v-if="locateError" class="m-0 text-[11.5px] leading-[1.4] text-[#f0a34a]">{{ locateError }}</p>
         </div>
 
         <SettingsToggle

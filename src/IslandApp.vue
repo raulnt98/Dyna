@@ -484,9 +484,24 @@ const trackTitle = computed(() => media.state.value.title || "Sin reproducción"
  * mostraría «Sin reproducción» y una barra a cero. Una pista en pausa sí
  * cuenta: el usuario puede querer reanudarla.
  */
-const hasMedia = computed(() => {
+const mediaPresent = computed(() => {
   const { hasSession, title, playing } = media.state.value;
   return hasSession && (title !== "" || playing);
+});
+/**
+ * `mediaPresent` con un margen al perderse. Al cambiar de pista, según el reproductor y el equipo, SMTC pasa un
+ * instante sin sesión o con una sesión vacía y parada; sin margen, la isla creía que ya no había nada, saltaba a
+ * la hora y no volvía hasta pasados los 15 s de inactividad. Ganar medios es inmediato; perderlos tarda
+ * `MEDIA_LOSS_GRACE_MS`.
+ */
+const MEDIA_LOSS_GRACE_MS = 3000;
+const hasMedia = ref(mediaPresent.value);
+let mediaLossTimer: number | undefined;
+watch(mediaPresent, (present) => {
+  if (mediaLossTimer !== undefined) window.clearTimeout(mediaLossTimer);
+  mediaLossTimer = undefined;
+  if (present) hasMedia.value = true;
+  else mediaLossTimer = window.setTimeout(() => (hasMedia.value = false), MEDIA_LOSS_GRACE_MS);
 });
 
 /**
@@ -650,7 +665,7 @@ function resizeWindow(size: { width: number; height: number }, durationMs?: numb
  */
 const MORPH_USER_MS = 580;
 const MORPH_NOTICE_IN_MS = 400;
-const MORPH_NOTICE_OUT_MS = 340;
+const MORPH_NOTICE_OUT_MS = 460;
 const morphMs = ref(MORPH_USER_MS);
 let hadNotice = false;
 

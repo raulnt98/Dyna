@@ -1091,6 +1091,8 @@ pub fn run() {
             power_state,
             monitors_list,
             weather::weather_current,
+            weather::weather_search,
+            weather::weather_locate_here,
             speedtest::speedtest_run,
             sysstats::system_stats
         ])
