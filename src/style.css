@@ -320,6 +320,16 @@ button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 .picker-leave-to .picker-item { opacity: 0; filter: blur(4px); }
 .picker-item { transition: opacity .5s cubic-bezier(.32,.72,0,1) calc(.24s + var(--i, 0) * .06s), filter .5s cubic-bezier(.32,.72,0,1) calc(.24s + var(--i, 0) * .06s), background-color .15s, color .15s; }
 .picker-enter-from .picker-item { opacity: 0; filter: blur(4px); }
+/* La canción presentada (`np-slow`) va ×1,4 más lenta que el resto de avisos, a petición del usuario: la isla crece/encoge en 0,9 s
+   (MORPH_TRACK_* en IslandApp.vue) y su contenido entra y sale a juego, con los retrasos escalados. Los selectores llevan dos clases
+   para ganar a las reglas generales de arriba. */
+.np-slow.notice-panel-enter-active { transition: opacity .77s cubic-bezier(.32,.72,0,1) .22s, filter .77s cubic-bezier(.32,.72,0,1) .22s; }
+.np-slow.notice-panel-leave-active { transition: opacity .64s cubic-bezier(.32,.72,0,1), filter .64s cubic-bezier(.32,.72,0,1), transform .72s cubic-bezier(.32,.72,0,1); }
+.np-slow .np-lead { transition: transform .98s cubic-bezier(.32,.72,0,1) .22s; }
+.np-slow .np-copy > * { transition: opacity .77s cubic-bezier(.32,.72,0,1) .36s, filter .77s cubic-bezier(.32,.72,0,1) .36s; }
+.np-slow .np-copy > :nth-child(n+2) { transition-delay: .48s; }
+.np-slow .np-wave { transition: opacity .7s ease .58s; }
+.island.is-track .island-collapsed.collapsed-leave-active { animation-duration: .4s; }
 .np-wave.is-bar { height: 13px; }
 .np-wave { flex: none; margin-left: 2px; transition: opacity .5s ease .42s; }
 .notice-panel-enter-from .np-wave { opacity: 0; }

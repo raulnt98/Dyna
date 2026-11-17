@@ -189,7 +189,7 @@ fn request_synced(url: &str) -> Option<Vec<LyricLine>> {
     }
     let mut response = match agent()
         .get(url)
-        .header("User-Agent", "DynamicIsland/0.1 (dynamic-island desktop)")
+        .header("User-Agent", "Dyna/0.5 (desktop)")
         .call()
     {
         Ok(response) => response,

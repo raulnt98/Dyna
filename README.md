@@ -1,4 +1,4 @@
-# Dynamic Island para Windows
+# Dyna para Windows
 
 Una isla dinámica para el escritorio de Windows, construida con Vue 3 y Tauri 2.
 Cuelga del borde superior de la pantalla, por encima del resto de ventanas, y
@@ -20,7 +20,7 @@ simula un escritorio Windows con las actividades.
 ## Descarga
 
 La última versión está en [**Releases**](https://github.com/raulnt98/Dyna/releases/latest):
-descarga `Dynamic.Island_<versión>_x64-setup.exe` y ejecútalo.
+descarga `Dyna_<versión>_x64-setup.exe` y ejecútalo.
 
 - Se instala **solo para tu usuario**, sin permisos de administrador.
 - Requiere Windows 10 u 11 (64 bits) con WebView2, que ya viene en Windows 11.
@@ -32,6 +32,16 @@ descarga `Dynamic.Island_<versión>_x64-setup.exe` y ejecútalo.
 Para compilarlo tú mismo, mira [Aplicación de escritorio con
 Tauri](#aplicación-de-escritorio-con-tauri); `npm run tauri:build` genera el
 instalador en `src-tauri/target/release/bundle/nsis/`.
+
+### Novedades de la 0.6.0
+
+- **La app se llama Dyna** y estrena logo (un interruptor de vidrio sobre plata). El proceso es `dyna.exe`, el instalador `Dyna_<versión>_x64-setup.exe`, y el nombre de las ventanas, la bandeja y el inicio automático, el mismo. Los ajustes de la versión anterior se copian solos; si tenías instalada «Dynamic Island», desinstálala (son dos programas distintos).
+- **Burbujas de notificación:** en Ajustes → Avisos («Formato de los avisos») puedes elegir «Discreta» para las notificaciones de aplicaciones y para los avisos del sistema (cargador, batería baja, Wi-Fi, internet, Bluetooth, USB, bloqueos, No molestar, volumen y brillo). Es un círculo del color de la isla, con solo el icono, que se desprende de su costado como una gota y vuelve a fundirse al retirarse. Lo activo se ve en color y lo apagado, en gris y tachado. El volumen y el brillo dibujan un borde alrededor de la burbuja según el nivel. Pulsarla abre la aplicación. Cada app puede elegir su formato (General, Completa o Discreta) en Ajustes → Apps.
+- **Notificaciones como un banner de móvil:** la foto del remitente lleva el logo de la app como insignia, el remitente va en negrita con «ahora» a la derecha y un botón «×» cierra el aviso sin abrir la aplicación.
+- **Panel de ajustes renovado:** sobrio y plateado, con la paleta del logo, sin la barra de título de Windows (su cabecera hace de barra), pestañas como control segmentado, textos breves, fuente Roboto Condensed incluida en la app y transiciones suaves. La barra de desplazamiento siempre reserva su hueco, así que nada se mueve al cambiar de pestaña o abrir un desplegable.
+- **La canción presentada** entra y sale más despacio (0,9 s).
+- **Una sola isla:** si la app ya está abierta, un segundo arranque se cierra solo en vez de abrir otra isla encima.
+- **Arreglos:** el inicio automático ya no puede quedar apuntando a una copia de desarrollo, y el logo de las notificaciones se recorta a su dibujo para que llene la insignia.
 
 ### Novedades de la 0.5.0
 
@@ -591,7 +601,7 @@ confirmación.
 | Avisos del sistema | Interruptor general de los avisos. Debajo, uno por tipo: cargador, volumen, batería baja (al 20 % y al 10 %), **Wi-Fi**, **Internet**, **Bluetooth**, **USB**, **Bloq Mayús y Bloq Num**, **No molestar**, **Brillo**, **Micrófono y cámara** y **Descargas**. Ver [Avisos del sistema](#avisos-del-sistema). |
 | Notificaciones de aplicaciones | Muestra en la isla las notificaciones de Teams, Outlook, WhatsApp u otras apps, y la lista de cuáles. **Apagado por defecto.** Con WhatsApp activado, descarga además la foto del remitente. Ver [abajo](#notificaciones-de-otras-aplicaciones). |
 
-Los ajustes se guardan en `%APPDATA%\DynamicIsland\settings.json`. Un campo nuevo
+Los ajustes se guardan en `%APPDATA%\Dyna\settings.json` (la primera vez se copian los de `%APPDATA%\DynamicIsland`, de cuando la app se llamaba «Dynamic Island»). Un campo nuevo
 no invalida un archivo existente: los que faltan toman su valor por defecto, y los
 que ya no existen se ignoran. El inicio automático se escribe en la clave `Run`
 del usuario, que no requiere permisos de administrador.

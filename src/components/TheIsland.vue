@@ -52,6 +52,7 @@ import ToastMarquee from "@/components/ToastMarquee.vue";
 import { vAutoAnimate } from "@formkit/auto-animate/vue";
 import type { Activity } from "@/lib/activities";
 import { homePillWidth, noticeWidth } from "@/lib/notifications";
+import { trimLogo } from "@/lib/trimLogo";
 
 const props = defineProps<{
   mode: Activity;
@@ -326,6 +327,19 @@ const toastIcon = computed(() => {
   const icon = props.notice?.data?.icon;
   return typeof icon === "string" && icon.startsWith("data:image/") ? icon : "";
 });
+/** El mismo logo sin su margen transparente (ver trimLogo.ts); vacío hasta que está listo. */
+const toastLogo = ref("");
+watch(
+  toastIcon,
+  async (icon) => {
+    toastLogo.value = "";
+    if (!icon) return;
+    const trimmed = await trimLogo(icon);
+    // Si mientras tanto llegó otro aviso, este resultado ya no vale.
+    if (toastIcon.value === icon) toastLogo.value = trimmed;
+  },
+  { immediate: true },
+);
 /** Foto del remitente, si la hay; si no, el logo de la app, y si tampoco, la inicial. */
 const toastAvatar = computed(() => {
   const avatar = props.notice?.data?.avatar;
@@ -398,6 +412,7 @@ const emit = defineEmits<{
   (e: "island-enter"): void;
   (e: "speedtest"): void;
   (e: "toggle-favorite"): void;
+  (e: "dismiss-notice"): void;
   (e: "outputs-toggle"): void;
   (e: "output-pick", id: string): void;
   (e: "island-leave", event: MouseEvent): void;
@@ -548,13 +563,14 @@ function onSeekKeydown(event: KeyboardEvent) {
       v-if="showsDeployed && notice"
       :key="notice.kind"
       class="absolute inset-0 z-1 isolate flex"
-      :class="
+      :class="[
+        showsTrackBar ? 'np-slow' : '',
         showsTrackBar
           ? 'items-center gap-2.5 pr-3.5 pl-2.5'
           : deployedWithBar
             ? 'flex-col justify-center gap-[11px] px-[26px]'
-            : 'items-center justify-center gap-[18px] px-[26px]'
-      "
+            : 'items-center justify-center gap-[18px] px-[26px]',
+      ]"
       aria-hidden="true"
     >
       <!-- Con barra (volumen, batería): arriba icono y texto, y la barra debajo a todo
@@ -592,20 +608,38 @@ function onSeekKeydown(event: KeyboardEvent) {
     <!-- Notificación de otra aplicación. Cada una lleva `key` para que el
          contenido se renueve al relevarse por otra aún con la isla alta. -->
     <Transition name="notice-panel"><div v-if="showsToast" :key="`${toastApp}${toastTitle}${toastBody}`" class="absolute inset-0 z-1 isolate flex items-center gap-3.5 px-5" aria-hidden="true">
-      <img v-if="toastAvatar" :src="toastAvatar" alt="" class="np-lead size-11 flex-none rounded-full object-cover" />
-      <img v-else-if="toastIcon" :src="toastIcon" alt="" class="np-lead size-11 flex-none rounded-full bg-white/12 object-contain p-1.5" />
-      <span v-else class="np-lead grid size-11 flex-none place-items-center rounded-full bg-green text-[19px] font-bold text-[#0a0c0a]">{{ toastInitial }}</span>
-      <span class="np-copy grid min-w-0 flex-1 gap-1">
-        <span class="text-[10px] leading-[1.45] font-semibold tracking-[.06em] text-[#d4d4db] uppercase">{{ toastApp }}</span>
+      <!-- Estilo de banner de móvil: la foto del remitente lleva el logo de la app como insignia en la esquina; sin foto,
+           el logo (o la inicial) hace de avatar y no hay insignia. -->
+      <span class="np-lead relative size-12 flex-none">
+        <img v-if="toastAvatar" :src="toastAvatar" alt="" class="size-12 rounded-full object-cover shadow-[0_0_0_1.5px_rgba(255,255,255,.14)]" />
+        <img v-else-if="toastIcon" :src="toastLogo || toastIcon" alt="" class="size-12 rounded-full bg-white/12 object-contain p-2shadow-[0_0_0_1.5px_rgba(255,255,255,.1)]" />
+        <span v-else class="grid size-12 place-items-center rounded-full bg-green text-[20px] font-bold text-[#0a0c0a]">{{ toastInitial }}</span>
+        <!-- El logo llena el círculo entero, sin relleno: con margen interior quedaba como un punto (probado con 4,5 px). -->
+        <span v-if="toastAvatar && toastLogo" class="absolute -right-1.5 -bottom-1.5 size-[26px] overflow-hidden rounded-full bg-[#26282d] p-[3px] shadow-[0_0_0_2.5px_#050505]">
+          <img :src="toastLogo" alt="" class="size-full object-contain" />
+        </span>
+      </span>
+      <span class="np-copy grid min-w-0 flex-1 gap-[5px]">
         <!-- Sin cuerpo, el texto único ocupa la fila del mensaje y puede ir a dos
              líneas. Con cuerpo, el mensaje ocupa hasta tres y, si pasa de ahí, sube
              (ToastMarquee): la isla no cambia de tamaño. -->
-        <strong
-          class="text-[13px] leading-[1.2] text-white/96"
-          :class="toastBody
-            ? 'truncate font-semibold'
-            : 'overflow-hidden font-medium [overflow-wrap:anywhere] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]'"
-        >{{ toastTitle }}</strong>
+        <span class="flex items-baseline justify-between gap-2">
+          <strong
+            class="min-w-0 text-[14px] leading-[1.25] tracking-[-.005em] text-white"
+            :class="toastBody
+              ? 'truncate font-bold'
+              : 'overflow-hidden font-medium [overflow-wrap:anywhere] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]'"
+          >{{ toastTitle }}</strong>
+          <span class="flex flex-none items-center gap-1.5">
+            <small class="text-[11px] text-white/40">ahora</small>
+            <!-- Cierra solo el aviso. `.stop`: un toque en la isla además abriría la app de origen (toggleIsland). -->
+            <button
+              class="grid size-5 flex-none cursor-pointer place-items-center rounded-full bg-white/10 text-white/60 transition-colors duration-150 hover:bg-white/20 hover:text-white active:scale-90 [&>svg]:size-3"
+              aria-label="Cerrar notificación"
+              @click.stop="emit('dismiss-notice')"
+            ><IconX /></button>
+          </span>
+        </span>
         <!-- Un adjunto sin imagen disponible (ver `toastMediaKind`): chip con icono. -->
         <span v-if="toastMedia" class="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/12 py-1 pr-3 pl-2 text-[12px] font-medium text-white/92">
           <svg viewBox="0 0 24 24" class="size-4 flex-none" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

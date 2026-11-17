@@ -8,6 +8,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import TheIsland from "@/components/TheIsland.vue";
+import ToastBubble from "@/components/ToastBubble.vue";
 import { useSystemMedia } from "@/lib/media";
 import { accentFromArtwork } from "@/lib/artColor";
 import { clearAudioLevels, pushAudioLevels } from "@/lib/audioFeed";
@@ -89,8 +90,36 @@ const ring = "#000";
 const media = useSystemMedia();
 
 /** Cola de avisos: interrumpen la píldora compacta y se retiran solos. */
-const notifications = useNotifications();
-const notice = notifications.current;
+const queue = useNotifications();
+const notice = queue.current;
+type Notice = Parameters<typeof queue.notify>[0];
+
+/**
+ * Avisos del sistema que pueden salir como burbuja (mismo ajuste `notificationStyle`). Se quedan fuera la canción presentada, los indicadores de micrófono y cámara, las
+ * descargas y el test de velocidad. Con el ajuste en «burbuja» estos avisos se desvían antes de entrar en la cola.
+ */
+const BUBBLE_ALERTS = new Set<Notice["kind"]>(["power", "battery", "wifi", "internet", "bluetooth", "bluetooth-off", "usb", "caps", "num", "focus", "volume", "brightness"]);
+const BUBBLE_BASE_KIND: Partial<Record<Notice["kind"], Notice["kind"]>> = { "bluetooth-off": "bluetooth", internet: "wifi" };
+const notifications = {
+  current: queue.current,
+  dismiss: queue.dismiss,
+  notify(item: Notice) {
+    if (notificationStyle.value === "bubble" && BUBBLE_ALERTS.has(item.kind)) {
+      // La burbuja no lleva texto que diga si algo se encendió o se apagó, así que **todos** los pares lo distinguen igual:
+      // el mismo icono, en color si está activo y en gris y tachado si no. `on` (o `plugged` en el cargador) lo dice; el
+      // Bluetooth desconectado y la pérdida de internet tienen su propio tipo en el panel y aquí vuelven a su icono base.
+      const on = item.data?.on ?? item.data?.plugged;
+      const off = on === false || item.kind === "bluetooth-off" || item.kind === "internet";
+      // El volumen y el brillo cambian a ráfagas (teclas, rueda): una burbuja corta, que se renueva con cada pulsación.
+      const hold = item.kind === "volume" || item.kind === "brightness" ? 2600 : Math.max(6000, item.duration * 2);
+      // El volumen y el brillo enseñan su nivel como un borde que se dibuja alrededor de la burbuja.
+      const level = typeof item.data?.level === "number" ? item.data.level : undefined;
+      showBubble({ id: null, app: item.label, icon: "", kind: BUBBLE_BASE_KIND[item.kind] ?? item.kind, muted: item.data?.muted === true, off, level }, hold);
+      return;
+    }
+    queue.notify(item);
+  },
+};
 
 /**
  * Aviso al conectar o desconectar el cargador.
@@ -143,6 +172,90 @@ useVolumeEvents((change) => {
 });
 
 /**
+ * Formato de los avisos (ajuste `notificationStyle`, también el de los avisos del sistema): el panel de siempre o una burbuja discreta.
+ *
+ * La burbuja **no pasa por la cola de avisos**: no interrumpe lo que la isla muestre, no la abre ni la
+ * redimensiona, y un cargador o un volumen pueden salir a la vez. Brota del costado derecho con solo el icono de la
+ * app (ver ToastBubble.vue). Rust recorta la ventana con ella (`island_bubble`); la página lo pide a la vez que
+ * cambia la clase, con la misma duración, para que ninguno asome por detrás del otro.
+ */
+type NotificationStyle = "panel" | "bubble";
+const notificationStyle = ref<NotificationStyle>("panel");
+/** Apps con su formato propio (completa o discreta); sin él, manda `notificationStyle`. */
+const notificationApps = ref<{ name: string; enabled: boolean; style?: NotificationStyle | null }[]>([]);
+const BUBBLE_IN_MS = 640;
+const BUBBLE_OUT_MS = 640;
+/** Cuánto se queda a la vista, y cuánto más tras apartar el ratón de ella. */
+const BUBBLE_HOLD_MS = 11000;
+const BUBBLE_AFTER_HOVER_MS = 2000;
+/** Lo último que mostró; se conserva mientras la burbuja se recoge para que no se vacíe a media animación. */
+const bubble = ref<{ id: number | null; app: string; icon: string; kind: string; muted: boolean; off: boolean; level?: number; tick: number } | null>(null);
+const bubbleShown = ref(false);
+let bubbleTimer: number | undefined;
+let bubbleClearTimer: number | undefined;
+let bubbleTick = 0;
+/** Cuenta los avisos que repiten el contenido de la burbuja a la vista (el volumen pulsado seguido): cada uno hace respirar. */
+const bubblePulse = ref(0);
+
+function armBubbleTimer(ms: number) {
+  window.clearTimeout(bubbleTimer);
+  bubbleTimer = window.setTimeout(hideBubble, ms);
+}
+
+/** Con el ratón encima no se retira: se está leyendo (o apuntando) a ella. */
+function pauseBubble() {
+  window.clearTimeout(bubbleTimer);
+}
+
+/** `kind` vacío es una notificación de app (logo); con valor, un aviso del sistema (su icono). `id` solo lo tienen las de app. */
+function showBubble(
+  content: { id: number | null; app: string; icon?: string | null; kind?: string; muted?: boolean; off?: boolean; level?: number },
+  holdMs = BUBBLE_HOLD_MS,
+) {
+  window.clearTimeout(bubbleClearTimer);
+  const next = { id: content.id, app: content.app, icon: content.icon ?? "", kind: content.kind ?? "", muted: content.muted ?? false, off: content.off ?? false, level: content.level };
+  const prev = bubble.value;
+  // Mismo icono y mismo estado (el volumen subiendo paso a paso): no se repite el «pop», que parpadearía con cada pulsación.
+  const same = prev && prev.kind === next.kind && prev.icon === next.icon && prev.muted === next.muted && prev.off === next.off;
+  bubble.value = { ...next, tick: same ? prev.tick : ++bubbleTick };
+  if (same) bubblePulse.value++;
+  if (!bubbleShown.value) {
+    bubbleShown.value = true;
+    void invokeWindow("island_bubble", { visible: true, durationMs: BUBBLE_IN_MS });
+  }
+  armBubbleTimer(holdMs);
+}
+
+/**
+ * Retira la burbuja entera de una vez: círculo, icono y borde de nivel se recogen juntos en la isla (a petición del usuario; se
+ * probó antes a apagar primero el contenido y recoger el círculo después). **El círculo no puede desvanecerse él mismo**: Rust
+ * lo recorta con la ventana y Windows pinta de pálido cualquier píxel transparente dentro del recorte.
+ */
+function hideBubble() {
+  window.clearTimeout(bubbleTimer);
+  if (!bubbleShown.value) return;
+  bubbleShown.value = false;
+  void invokeWindow("island_bubble", { visible: false, durationMs: BUBBLE_OUT_MS });
+  bubbleClearTimer = window.setTimeout(() => (bubble.value = null), BUBBLE_OUT_MS + 80);
+}
+
+/** Pulsarla abre la aplicación de origen (como el panel) y la recoge. */
+function openBubble() {
+  const id = bubble.value?.id;
+  if (typeof id === "number") void invokeResult("toast_open", { id });
+  hideBubble();
+}
+
+watch(notificationStyle, () => {
+  // Cambiar de formato con una burbuja a la vista: se recoge, para no dejar una del formato que ya no se quiere.
+  hideBubble();
+});
+onUnmounted(() => {
+  window.clearTimeout(bubbleTimer);
+  window.clearTimeout(bubbleClearTimer);
+});
+
+/**
  * Notificación de otra aplicación (Teams, Outlook…).
  *
  * Se apilan en lugar de reemplazarse: dos mensajes seguidos son dos mensajes.
@@ -150,6 +263,11 @@ useVolumeEvents((change) => {
  * retirarse vuelve el contenido.
  */
 useToastEvents((toast) => {
+  const own = notificationApps.value.find((app) => app.name === toast.app)?.style;
+  if ((own ?? notificationStyle.value) === "bubble") {
+    showBubble({ id: toast.id, app: toast.app, icon: toast.icon });
+    return;
+  }
   const { title, body } = tidyToast(toast);
   const text = [title, body].filter(Boolean).join(": ");
   notifications.notify({
@@ -420,7 +538,7 @@ useUsbEvents((change) => {
     kind: "usb",
     label: `${change.connected ? "Unidad conectada" : "Unidad retirada"} · ${subtitle}`,
     duration: 3600,
-    data: { deployed: true, title: change.connected ? "Unidad conectada" : "Unidad retirada", subtitle },
+    data: { on: change.connected, deployed: true, title: change.connected ? "Unidad conectada" : "Unidad retirada", subtitle },
   });
 });
 
@@ -433,6 +551,7 @@ useLockKeyEvents(({ key, on }) => {
     label: title,
     duration: 1800,
     data: {
+      on,
       deployed: true,
       title,
       subtitle: caps
@@ -449,6 +568,7 @@ useFocusEvents((on) => {
     label: on ? "No molestar activado" : "No molestar desactivado",
     duration: 2800,
     data: {
+      on,
       deployed: true,
       title: on ? "No molestar" : "No molestar desactivado",
       subtitle: on ? "Avisos silenciados" : "Los avisos vuelven",
@@ -683,8 +803,12 @@ function resizeWindow(size: { width: number; height: number }, durationMs?: numb
 const MORPH_USER_MS = 580;
 const MORPH_NOTICE_IN_MS = 640;
 const MORPH_NOTICE_OUT_MS = 680;
+/** La canción presentada es un aviso largo y de fondo, no una alerta: entra y sale más despacio (×1,4, a petición del usuario). Rust acota a 1 s. */
+const MORPH_TRACK_IN_MS = 900;
+const MORPH_TRACK_OUT_MS = 940;
 const morphMs = ref(MORPH_USER_MS);
 let hadNotice = false;
+let hadTrack = false;
 
 /**
  * Sincroniza el recorte de la ventana con el tamaño de la isla.
@@ -704,8 +828,12 @@ watch(
     const hasNotice = !!notice.value;
     // Un aviso que aparece, cambia o se retira es cosa del sistema; el resto,
     // del usuario. Se calcula antes del `return` para no dejar `hadNotice` viejo.
-    const duration = hasNotice ? MORPH_NOTICE_IN_MS : hadNotice ? MORPH_NOTICE_OUT_MS : MORPH_USER_MS;
+    const isTrack = notice.value?.kind === "track";
+    const duration = hasNotice
+      ? isTrack ? MORPH_TRACK_IN_MS : MORPH_NOTICE_IN_MS
+      : hadNotice ? (hadTrack ? MORPH_TRACK_OUT_MS : MORPH_NOTICE_OUT_MS) : MORPH_USER_MS;
     hadNotice = hasNotice;
+    if (hasNotice) hadTrack = isTrack;
     if (previous && size.width === previous.width && size.height === previous.height) return;
 
     morphMs.value = duration;
@@ -1057,7 +1185,11 @@ onMounted(async () => {
     hoverOpen?: boolean;
     notifications?: boolean;
     notifyTrack?: boolean;
+    notificationStyle?: NotificationStyle;
+    notificationApps?: { name: string; enabled: boolean; style?: NotificationStyle | null }[];
   }>("settings_get");
+  if (stored?.notificationStyle) notificationStyle.value = stored.notificationStyle;
+  if (stored?.notificationApps) notificationApps.value = stored.notificationApps;
   if (stored?.homeSeconds !== undefined) homeSeconds.value = stored.homeSeconds;
   if (stored?.hoverOpen !== undefined) hoverOpen.value = stored.hoverOpen;
   if (stored?.notifications !== undefined) notificationsOn.value = stored.notifications;
@@ -1121,7 +1253,11 @@ onMounted(async () => {
       hoverOpen?: boolean;
       notifications?: boolean;
       notifyTrack?: boolean;
+      notificationStyle?: NotificationStyle;
+      notificationApps?: { name: string; enabled: boolean; style?: NotificationStyle | null }[];
     }>("settings://changed", (event) => {
+      if (event.payload?.notificationStyle) notificationStyle.value = event.payload.notificationStyle;
+      if (event.payload?.notificationApps) notificationApps.value = event.payload.notificationApps;
       if (event.payload?.hoverOpen !== undefined) hoverOpen.value = event.payload.hoverOpen;
       if (event.payload?.notifications !== undefined) notificationsOn.value = event.payload.notifications;
       if (event.payload?.notifyTrack !== undefined) trackNoticeOn.value = event.payload.notifyTrack;
@@ -1234,6 +1370,7 @@ function scrubTo(ratio: number) {
       :outputs="outputs"
       :outputs-open="outputsOpen"
       @toggle-favorite="toggleFavorite"
+      @dismiss-notice="notifications.dismiss()"
       @outputs-toggle="toggleOutputs"
       @output-pick="pickOutput"
       :batteries-enabled="showHomeBatteries"
@@ -1260,6 +1397,26 @@ function scrubTo(ratio: number) {
       @volume="setVolume"
       @toggle-lyrics="lyricsOpen = !lyricsOpen"
       @skip="skipBy"
+    />
+    <!-- Burbuja de notificación (ajuste `notificationStyle`): hija de `.island-wrap` para colocarse respecto a su costado
+         derecho; no es de TheIsland porque no forma parte de la isla ni de su contenido. -->
+    <!-- Siempre montados: una burbuja que se montara ya con `is-shown` no tendría estado inicial y el CSS no la animaría.
+         El cuello es el hilo que la une a la isla mientras se desprende (ver `.toast-neck`). -->
+    <span class="toast-neck pointer-events-none absolute" :class="{ 'is-shown': bubbleShown }" :style="{ '--bubble-ms': `${bubbleShown ? BUBBLE_IN_MS : BUBBLE_OUT_MS}ms` }" aria-hidden="true"></span>
+    <ToastBubble
+      :shown="bubbleShown"
+      :app="bubble?.app ?? ''"
+      :icon="bubble?.icon ?? ''"
+      :kind="bubble?.kind ?? ''"
+      :muted="bubble?.muted ?? false"
+      :off="bubble?.off ?? false"
+      :level="bubble?.level"
+      :tick="bubble?.tick ?? 0"
+      :pulse="bubblePulse"
+      :style="{ '--bubble-ms': `${bubbleShown ? BUBBLE_IN_MS : BUBBLE_OUT_MS}ms` }"
+      @open="openBubble"
+      @enter="pauseBubble"
+      @leave="armBubbleTimer(BUBBLE_AFTER_HOVER_MS)"
     />
     </div>
   </div>
@@ -1478,6 +1635,95 @@ body,
 }
 .island-wrap.collapsed-round:not(:has(.island.is-expanded)):not(:has(.island.is-tab)) {
   margin-top: 6px;
+}
+
+/* Burbuja de notificación (ToastBubble.vue). Cuelga del costado derecho de la isla, a `--notch` + 6 px, **del mismo color
+   que ella** (#050506), y nace desde dentro: empieza escondida detrás de la isla, pequeña, y sale deslizándose mientras
+   crece, de modo que parece una gota que la isla suelta (al ser del mismo color, no hay costura al emerger). Rust recorta
+   la ventana con el mismo círculo y la misma trayectoria (`BUBBLE_SIZE` 34, `BUBBLE_GAP` 6 y `BUBBLE_TRAVEL` 40 en lib.rs) y
+   la misma curva (`bubble_ease`): si el recorte fuera por delante de la burbuja, asomaría de pálido. Escala y
+   desplazamiento van en un solo `transform`, con una sola curva, para que avancen a la par; nunca se re-monta. */
+.toast-bubble {
+  top: 0;
+  left: calc(100% + var(--notch) + 6px);
+  width: 34px;
+  height: 34px;
+  /* Por debajo de la isla (z 2): al nacer, asoma por detrás de ella. */
+  z-index: 1;
+  transform: translateX(-40px) scale(0);
+  transform-origin: left center;
+  /* Curva más pareja que la de la isla (`bubble_ease` en lib.rs la replica): la de la isla gasta casi todo el movimiento al
+     principio y la burbuja parecería aparecer de golpe. */
+  transition: transform var(--bubble-ms, 0.72s) cubic-bezier(.4, 0, .2, 1), left var(--morph, 0.58s) cubic-bezier(.22, 1, .36, 1);
+  background: #050506;
+}
+.toast-bubble.is-shown {
+  transform: translateX(0) scale(1);
+}
+/* Borde de nivel del volumen y el brillo: un anillo de 3 px pegado al borde del círculo que se llena en el sentido de las
+   agujas del reloj desde arriba, sobre una pista tenue. `--ring` es una propiedad registrada (`@property`) para poder
+   transicionarla: sube y baja con un fundido de 640 ms, la misma curva que el resto de la burbuja. */
+@property --ring {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+/* Definición: **medidas enteras**. El anillo va metido 2 px (diámetro 30, centro justo en el cruce de píxeles de la burbuja de 34) y mide
+   3 px; con medios píxeles (1,5 px) a 1× el suavizado se repartía mal y salía más grueso por un lado que por el otro («chueco»,
+   medido en la app real). El final del arco lleva un degradado de 0,35 % para no salir escalonado. */
+.toast-bubble-ring {
+  inset: 2px;
+  background: conic-gradient(from 0deg, var(--ring-color, #fff) var(--ring), rgba(255, 255, 255, 0.14) calc(var(--ring) + 0.35%));
+  -webkit-mask: radial-gradient(circle farthest-side at 50% 50%, transparent 12px, #000 12.5px, #000 14.5px, transparent 15px);
+  mask: radial-gradient(circle farthest-side at 50% 50%, transparent 12px, #000 12.5px, #000 14.5px, transparent 15px);
+  transition: --ring 640ms cubic-bezier(.4, 0, .2, 1);
+}
+/* Cuello: el hilo que une la burbuja con la isla mientras se desprende, como una gota que se estira antes de soltarse.
+   Gordo al nacer (24 px) y cada vez más fino hasta romperse (0) cuando la burbuja llega a su sitio; por la salida, al
+   revés: la burbuja vuelve y se funde con la isla. Su extremo derecho sigue el centro de la burbuja (que avanza lineal con
+   el progreso: de `--notch` − 28 a `--notch` + 29 px desde 6 px dentro de la isla) y misma curva que ella. Rust lo
+   recorta igual (`NECK_HEIGHT`, `NECK_INSET` en lib.rs): a lo sumo el CSS es algo más largo, que el recorte corta. */
+.toast-neck {
+  top: 17px;
+  left: calc(100% - 6px);
+  z-index: 1;
+  width: max(0px, calc(var(--notch) - 28px));
+  height: 24px;
+  border-radius: 12px;
+  transform: translateY(-50%);
+  background: #050506;
+  transition: width var(--bubble-ms, 0.72s) cubic-bezier(.4, 0, .2, 1), height var(--bubble-ms, 0.72s) cubic-bezier(.4, 0, .2, 1);
+}
+.toast-neck.is-shown {
+  width: calc(var(--notch) + 29px);
+  height: 0;
+  /* A altura 0 su aro de 2 px seguiría dibujando una barra: se oculta al terminar la apertura (el retraso de `visibility`
+     iguala la duración) y reaparece al instante al empezar a cerrarse. */
+  visibility: hidden;
+  transition: width var(--bubble-ms, 0.72s) cubic-bezier(.4, 0, .2, 1), height var(--bubble-ms, 0.72s) cubic-bezier(.4, 0, .2, 1), visibility 0s linear var(--bubble-ms, 0.72s);
+}
+.island-wrap.collapsed-round .toast-neck {
+  box-shadow: 0 0 0 2px var(--island-ring);
+}
+.island-wrap.is-glass .toast-neck {
+  background: linear-gradient(rgba(18, 20, 24, var(--glass-veil, .38)), rgba(18, 20, 24, var(--glass-veil, .38)));
+}
+/* Flotante redondeada: el mismo anillo negro opaco que la isla, para que el borde del recorte caiga sobre él. */
+.island-wrap.collapsed-round .toast-bubble {
+  box-shadow: 0 0 0 2px var(--island-ring);
+}
+/* Cristal líquido: el mismo velo que la isla, sin la imagen del escritorio (que Rust encuadra para la isla, no para ella). */
+.island-wrap.is-glass .toast-bubble {
+  background: linear-gradient(rgba(18, 20, 24, var(--glass-veil, .38)), rgba(18, 20, 24, var(--glass-veil, .38)));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+/* El icono aparece cuando la burbuja ya tiene cuerpo, y cada aviso nuevo lo reanima (la burbuja no se toca). */
+.toast-bubble-icon {
+  animation: bubble-pop 0.5s cubic-bezier(.22, 1, .36, 1) 0.3s both;
+}
+@keyframes bubble-pop {
+  from { opacity: 0; transform: scale(0.55); filter: blur(3px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
 }
 
 /* Anillo del estilo flotante: 2 px opacos del color del escritorio alrededor de la isla (`--island-ring`, muestreado en

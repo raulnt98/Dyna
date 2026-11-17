@@ -25,6 +25,8 @@ import {
 defineProps<{
   options: { value: T; label: string }[];
   id?: string;
+  /** Más bajo y de letra más pequeña, para las filas de segundo nivel (el formato de cada app). */
+  compact?: boolean;
 }>();
 
 const model = defineModel<T>({ required: true });
@@ -32,21 +34,21 @@ const model = defineModel<T>({ required: true });
 
 <template>
   <SelectRoot v-model="model">
-    <SelectTrigger :id="id" class="group inline-flex flex-none cursor-pointer items-center gap-2.5 rounded-[7px] border border-white/7 bg-[#1a1d27] py-1.5 pr-2.5 pl-3 whitespace-nowrap text-ink transition-[border-color,background-color] duration-150 hover:border-white/16 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent data-[state=open]:border-white/24 data-[state=open]:bg-[#1f2330] motion-reduce:duration-[0.01ms]">
+    <SelectTrigger :id="id" :class="compact ? 'gap-1.5 py-[3px] pr-2 pl-2.5 text-[13px]' : 'gap-2.5 py-1.5 pr-2.5 pl-3'" class="group inline-flex flex-none cursor-pointer items-center rounded-[7px] border border-line bg-field whitespace-nowrap text-ink transition-[border-color,background-color] duration-150 hover:border-edge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent data-[state=open]:border-edge data-[state=open]:bg-white motion-reduce:duration-[0.01ms]">
       <SelectValue />
-      <svg class="h-1.5 w-2.5 flex-none fill-none stroke-[#7f8292] stroke-[1.4] transition-transform duration-[180ms] [stroke-linecap:round] [stroke-linejoin:round] group-data-[state=open]:rotate-180 motion-reduce:duration-[0.01ms]" viewBox="0 0 10 6" aria-hidden="true">
-        <path d="M1 1l4 4 4-4" />
+      <svg class="h-3 w-2.5 flex-none fill-none stroke-[#686a74] stroke-[1.4] [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 10 12" aria-hidden="true">
+        <path d="M2 4.6L5 1.8l3 2.8M2 7.4l3 2.8 3-2.8" />
       </svg>
     </SelectTrigger>
 
     <SelectPortal>
-      <SelectContent class="z-50 min-w-(--reka-select-trigger-width) origin-(--reka-select-content-transform-origin) rounded-[10px] border border-white/10 bg-[#171a24] p-1 font-sans text-[13px] text-ink shadow-[0_14px_34px_rgba(0,0,0,0.55)] data-[state=open]:animate-select-in motion-reduce:animate-none" position="popper" :side-offset="6" align="end">
+      <SelectContent class="z-50 min-w-(--reka-select-trigger-width) origin-(--reka-select-content-transform-origin) rounded-[10px] border border-line bg-[#fbfbfc] p-1 font-sans text-[14px] text-ink shadow-[0_14px_34px_rgba(30,32,44,0.22)] data-[state=open]:animate-select-in data-[state=closed]:animate-select-out motion-reduce:animate-none" position="popper" :side-offset="6" align="end" :body-lock="false">
         <SelectViewport>
           <SelectItem
             v-for="option in options"
             :key="option.value"
             :value="option.value"
-            class="flex cursor-pointer items-center justify-between gap-[18px] rounded-[7px] px-2.5 py-[7px] outline-none select-none data-highlighted:bg-white/7 data-[state=checked]:font-[550]"
+            class="flex cursor-pointer items-center justify-between gap-[18px] rounded-[7px] px-2.5 py-[7px] outline-none select-none data-highlighted:bg-hover data-[state=checked]:font-[550]"
           >
             <SelectItemText>{{ option.label }}</SelectItemText>
             <SelectItemIndicator class="grid place-items-center">

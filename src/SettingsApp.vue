@@ -49,8 +49,9 @@ interface Settings {
   lyrics: boolean;
   /** Mostrar las notificaciones de otras aplicaciones (Teams, Outlook…). */
   appNotifications: boolean;
+  notificationStyle: "panel" | "bubble";
   /** Aplicaciones detectadas, cada una con su interruptor. */
-  notificationApps: { name: string; enabled: boolean }[];
+  notificationApps: { name: string; enabled: boolean; style?: "panel" | "bubble" | null }[];
   /** Segundos que saltan los botones de avance y retroceso. */
   skipSeconds: number;
   /** Segundos en la hora de la vista de inicio. */
@@ -99,6 +100,7 @@ const DEFAULTS: Settings = {
   notifyBrightness: true,
   lyrics: true,
   appNotifications: false,
+  notificationStyle: "panel",
   notificationApps: [],
   skipSeconds: 10,
   homeSeconds: true,
@@ -120,6 +122,13 @@ const settings = ref<Settings>({ ...DEFAULTS });
  * lo que tocan. La última abierta se recuerda (solo comodidad: si el almacenamiento falla, se abre
  * en la primera).
  */
+/** Formato de las notificaciones de cada app. `default` (en pantalla, «General») no es un valor guardado: es `null`. */
+const APP_STYLES = [
+  { value: "default", label: "General" },
+  { value: "panel", label: "Completa" },
+  { value: "bubble", label: "Discreta" },
+];
+
 const TABS = [
   { id: "island", label: "Isla" },
   { id: "home", label: "Inicio" },
@@ -138,6 +147,8 @@ function storedTab(): TabId {
   }
 }
 const tab = ref<TabId>(storedTab());
+/** Posición de la pestaña activa, para el indicador deslizante. */
+const tabIndex = computed(() => TABS.findIndex((item) => item.id === tab.value));
 function selectTab(id: TabId) {
   tab.value = id;
   try {
@@ -241,7 +252,7 @@ async function useMyLocation() {
   } catch (error) {
     locateError.value =
       error === "denied"
-        ? "Windows no deja leer la ubicación. Actívala en Configuración → Privacidad y seguridad → Ubicación."
+        ? "Windows bloquea la ubicación. Actívala en Configuración → Privacidad → Ubicación."
         : "No se pudo obtener la ubicación.";
   } finally {
     locating.value = false;
@@ -310,23 +321,29 @@ function closeWindow() {
   call("settings_close");
 }
 
+/** La ventana no lleva barra de título nativa: se arrastra desde la cabecera, salvo desde los botones. */
+function startDrag(event: MouseEvent) {
+  if ((event.target as HTMLElement).closest("button")) return;
+  call("settings_drag");
+}
+
 /* Clases que se repiten en las secciones. Cadenas completas y literales: así
    Tailwind las detecta al escanear el archivo. */
-const H2 = "mt-0 mb-2 ml-0.5 text-[11.5px] font-semibold tracking-[0.01em] text-muted";
-const PANEL = "overflow-hidden rounded-[10px] border border-line bg-panel [&>*+*]:border-t [&>*+*]:border-line";
-const ROW = "m-0 flex items-center justify-between gap-4 px-3.5 py-[11px]";
-const DESC = "text-[11.5px] leading-[1.4] text-muted";
+const H2 = "mt-0 mb-1.5 ml-3.5 text-[11.5px] font-medium tracking-[0.05em] text-muted uppercase";
+const PANEL = "overflow-hidden rounded-[11px] border border-line bg-panel shadow-[0_1px_2px_rgba(30,32,44,0.04)] [&>*]:relative [&>*+*]:before:absolute [&>*+*]:before:top-0 [&>*+*]:before:right-0 [&>*+*]:before:left-3.5 [&>*+*]:before:h-px [&>*+*]:before:bg-line [&>*+*]:before:content-['']";
+const ROW = "m-0 flex items-center justify-between gap-4 px-3.5 py-3";
+const DESC = "text-[12.5px] leading-[1.35] text-muted";
 </script>
 
 <template>
-  <div class="box-border flex min-h-screen flex-col gap-[22px] bg-bg px-[18px] pt-[18px] pb-4 font-sans text-[13px] leading-[normal] text-ink">
+  <div class="box-border flex min-h-screen flex-col gap-[22px] px-[18px] pt-[18px] pb-4 font-sans select-none text-[14px] leading-[normal] text-ink">
     <!-- Cabecera y pestañas fijas arriba: con más de treinta ajustes, la lista entera en un solo scroll era
          imposible de recorrer. Los márgenes negativos la llevan de borde a borde de la ventana. -->
-    <div class="sticky top-0 z-10 -mx-[18px] -mt-[18px] flex flex-col gap-3 bg-bg px-[18px] pt-[18px]">
-     <header class="flex items-start justify-between gap-3">
-        <div>
-          <h1 class="m-0 text-[16px] font-semibold tracking-[-0.01em]">Ajustes</h1>
-          <p class="mt-0.5 mb-0 text-[12px] text-muted">Los cambios se aplican al instante.</p>
+    <div class="sticky top-0 z-10 -mx-[18px] -mt-[18px] flex flex-col gap-3.5 bg-bg px-[18px] pt-[16px] pb-3">
+     <header class="flex cursor-default items-center justify-between gap-3 select-none" @mousedown.left="startDrag">
+        <div class="flex items-center gap-2.5">
+          <img src="/logo-96.png" alt="" class="size-7 flex-none" draggable="false" />
+          <h1 class="m-0 text-[16px] font-semibold tracking-[-0.005em]">Dyna</h1>
         </div>
         <div class="flex items-center gap-3">
           <span
@@ -335,7 +352,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
             role="status"
           >Guardado</span>
           <button
-            class="grid size-7 cursor-pointer place-items-center rounded-[7px] border-0 bg-transparent text-muted transition-colors duration-150 hover:bg-white/8 hover:text-ink"
+            class="grid size-7 cursor-pointer place-items-center rounded-[7px] border-0 bg-transparent text-muted transition-colors duration-150 hover:bg-hover hover:text-ink"
             aria-label="Cerrar ajustes"
             @click="closeWindow"
           >
@@ -343,7 +360,14 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
           </button>
         </div>
       </header>
-      <nav class="-mx-1 flex gap-0.5 border-b border-line" role="tablist" aria-label="Secciones de ajustes" @keydown="onTabKey">
+      <nav class="relative flex rounded-[9px] bg-line p-0.5" role="tablist" aria-label="Secciones de ajustes" @keydown="onTabKey">
+        <!-- El indicador mide lo que una pestaña (sin huecos entre ellas: con ellos el paso no coincidiría) y se desliza con la curva
+             de la isla. Va por debajo de los botones, que son transparentes. -->
+        <span
+          class="pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 rounded-[7px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.05)] transition-transform duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:duration-[0.01ms]"
+          :style="{ width: `calc((100% - 4px) / ${TABS.length})`, transform: `translateX(${tabIndex * 100}%)` }"
+          aria-hidden="true"
+        ></span>
         <button
           v-for="item in TABS"
           :id="'tab-' + item.id"
@@ -352,23 +376,23 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
           :aria-selected="tab === item.id"
           :aria-controls="'panel-' + item.id"
           :tabindex="tab === item.id ? 0 : -1"
-          class="relative cursor-pointer border-0 bg-transparent px-3 py-2 text-[12.5px] font-medium transition-colors duration-150 after:absolute after:inset-x-2.5 after:-bottom-px after:h-0.5 after:rounded-full after:transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
-          :class="tab === item.id ? 'text-ink after:bg-accent' : 'text-muted after:bg-transparent hover:text-ink'"
+          class="relative flex-1 cursor-pointer rounded-[7px] border-0 bg-transparent px-2 py-[5px] text-[13px] font-medium transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          :class="tab === item.id ? 'text-ink' : 'text-muted hover:text-ink'"
           @click="selectTab(item.id)"
         >
-          {{ item.label }}<span v-if="item.id === 'apps' && enabledApps" class="ml-1.5 rounded-full bg-white/10 px-1.5 py-px text-[10px] text-muted">{{ enabledApps }}</span>
+          {{ item.label }}<span v-if="item.id === 'apps' && enabledApps" class="ml-1.5 rounded-full bg-line px-1.5 py-px text-[10px] text-muted">{{ enabledApps }}</span>
         </button>
       </nav>
     </div>
 
-    <div v-show="tab === 'island'" :id="'panel-island'" role="tabpanel" :aria-labelledby="'tab-island'" class="grid gap-[22px]">
+    <div v-show="tab === 'island'" :id="'panel-island'" role="tabpanel" :aria-labelledby="'tab-island'" class="tab-panel grid gap-[22px]">
     <section>
       <h2 :class="H2">Pantalla</h2>
       <div :class="PANEL">
         <div :class="ROW">
           <label class="grid min-w-0 gap-0.5" for="monitor">
             <span class="font-medium">Pantalla</span>
-            <span :class="DESC">En qué pantalla cuelga la isla. Si la elegida se desconecta, vuelve a la principal.</span>
+            <span :class="DESC">Si se desconecta, vuelve a la principal.</span>
           </label>
           <SettingsSelect id="monitor" v-model="settings.monitor" :options="monitors" />
         </div>
@@ -381,7 +405,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         <div :class="ROW">
           <label class="grid min-w-0 gap-0.5" for="collapsed">
             <span class="font-medium">Vista minimizada</span>
-            <span :class="DESC">Cómo se ve la isla cerrada. La pestaña casi no tapa lo que hay debajo.</span>
+            <span :class="DESC">La pestaña casi no tapa nada.</span>
           </label>
           <SettingsSelect
             id="collapsed"
@@ -396,7 +420,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         <div :class="ROW">
           <label class="grid min-w-0 gap-0.5" for="island-style">
             <span class="font-medium">Estilo de la isla</span>
-            <span :class="DESC">Vale para la isla cerrada y para la abierta, con el mismo tamaño. Con muescas, cuelga del borde de la pantalla y se funde con él. Flotante redondeada es una cápsula suelta, unos píxeles por debajo del borde y sin muescas.</span>
+            <span :class="DESC">Con muescas, pegada al borde. Flotante, una cápsula suelta.</span>
           </label>
           <SettingsSelect
             id="island-style"
@@ -411,7 +435,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         <div :class="ROW" :style="{ opacity: settings.islandStyle === 'round' ? 1 : 0.42 }">
           <label class="grid min-w-0 gap-0.5" for="island-material">
             <span class="font-medium">Material</span>
-            <span :class="DESC">Cristal líquido (beta) desenfoca el escritorio de detrás. La isla no sale en capturas de pantalla con este material. Solo con el estilo flotante.</span>
+            <span :class="DESC">Desenfoca lo de detrás. Solo con el estilo flotante; la isla no sale en capturas.</span>
           </label>
           <SettingsSelect
             id="island-material"
@@ -432,32 +456,32 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         <SettingsToggle
           v-model="settings.hoverOpen"
           name="Abrir al pasar el ratón"
-          desc="La isla se despliega al acercar el ratón y se recoge al alejarlo. El clic sigue funcionando: si haces clic con ella abierta así, se queda abierta."
+          desc="Se abre al acercar el ratón y se recoge al alejarlo."
         />
 
         <SettingsToggle
           v-model="settings.alwaysOnTop"
           name="Siempre visible"
-          desc="Mantiene la isla por encima de otras ventanas."
+          desc="Se mantiene sobre otras ventanas."
         />
 
         <SettingsToggle
           v-model="settings.autostart"
           name="Iniciar con Windows"
-          desc="La isla se abre al encender el equipo."
+          desc="Arranca con Windows."
         />
       </div>
     </section>
     </div>
 
-    <div v-show="tab === 'home'" :id="'panel-home'" role="tabpanel" :aria-labelledby="'tab-home'" class="grid gap-[22px]">
+    <div v-show="tab === 'home'" :id="'panel-home'" role="tabpanel" :aria-labelledby="'tab-home'" class="tab-panel grid gap-[22px]">
     <section>
       <h2 :class="H2">Vista de inicio</h2>
       <div :class="PANEL">
         <div :class="ROW">
           <label class="grid min-w-0 gap-0.5" for="time-format">
             <span class="font-medium">Formato de la hora</span>
-            <span :class="DESC">Cómo se ve la hora en la isla cuando no hay nada sonando.</span>
+            <span :class="DESC">Formato de la hora en la vista de inicio.</span>
           </label>
           <SettingsSelect
             id="time-format"
@@ -472,19 +496,19 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         <SettingsToggle
           v-model="settings.homeStats"
           name="CPU y memoria"
-          desc="Muestra el uso del procesador y de la memoria en la vista de inicio."
+          desc="Procesador y memoria en la vista de inicio."
         />
 
         <SettingsToggle
           v-model="settings.homeBatteries"
           name="Baterías de dispositivos"
-          desc="Una página con la carga del portátil y de los dispositivos Bluetooth conectados que la informen: auriculares, ratón, teclado."
+          desc="Carga del portátil y de los dispositivos Bluetooth que la informen."
         />
 
         <SettingsToggle
           v-model="settings.weather"
           name="Tiempo en la vista de inicio"
-          desc="Temperatura y estado del cielo junto a la fecha. Envía la ciudad que escribas aquí a Open-Meteo para consultarlo."
+          desc="Temperatura y cielo junto a la fecha. Envía la ciudad a Open-Meteo."
         />
 
         <div class="grid gap-2 px-3.5 py-[11px] pl-7" :style="{ opacity: settings.weather ? 1 : 0.42 }">
@@ -498,7 +522,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
               maxlength="60"
               placeholder="Busca una ciudad"
               autocomplete="off"
-              class="w-[200px] rounded-[7px] border border-white/7 bg-[#1a1d27] px-3 py-1.5 text-ink outline-none transition-[border-color] duration-150 placeholder:text-[#5c5f6e] hover:border-white/16 focus-visible:border-accent"
+              class="w-[200px] rounded-[7px] border border-line bg-field select-text px-3 py-1.5 text-ink outline-none transition-[border-color] duration-150 placeholder:text-muted hover:border-edge focus-visible:border-accent"
               @input="onCityInput"
             />
           </div>
@@ -506,7 +530,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
             <li v-for="place in places" :key="`${place.lat},${place.lon}`" class="bg-panel">
               <button
                 type="button"
-                class="grid w-full cursor-pointer gap-0.5 border-0 bg-transparent px-3 py-2 text-left text-ink transition-colors hover:bg-white/5"
+                class="grid w-full cursor-pointer gap-0.5 border-0 bg-transparent px-3 py-2 text-left text-ink transition-colors hover:bg-hover"
                 @click="pickPlace(place)"
               >
                 <span class="font-[450]">{{ place.name }}</span>
@@ -515,28 +539,28 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
             </li>
           </ul>
           <div class="flex items-center justify-between gap-4">
-            <span :class="DESC">{{ settings.weatherLat !== null ? "Ciudad fijada con sus coordenadas." : "Elige una de la lista, o usa tu ubicación." }}</span>
+            <span :class="DESC">{{ settings.weatherLat !== null ? "Ciudad fijada." : "Elige una ciudad o usa tu ubicación." }}</span>
             <button
               type="button"
               :disabled="!settings.weather || locating"
-              class="shrink-0 cursor-pointer rounded-[7px] border border-white/7 bg-[#1a1d27] px-3 py-1.5 text-ink transition-[border-color] duration-150 hover:border-white/16 disabled:cursor-default disabled:opacity-60"
+              class="shrink-0 cursor-pointer rounded-[7px] border border-line bg-field px-3 py-1.5 text-ink transition-[border-color] duration-150 hover:border-edge disabled:cursor-default disabled:opacity-60"
               @click="useMyLocation"
             >{{ locating ? "Buscando…" : "Usar mi ubicación" }}</button>
           </div>
-          <p v-if="locateError" class="m-0 text-[11.5px] leading-[1.4] text-[#f0a34a]">{{ locateError }}</p>
+          <p v-if="locateError" class="m-0 text-[11.5px] leading-[1.4] text-[#b4540f]">{{ locateError }}</p>
         </div>
 
         <SettingsToggle
           v-model="settings.speedtest"
           name="Test de velocidad"
-          desc="Una página de la vista de inicio que mide la velocidad de bajada y la latencia con Cloudflare. Solo mide al pulsar el botón, y descarga unas decenas de megas."
+          desc="Velocidad y latencia con Cloudflare. Solo mide al pulsar; descarga unos megas."
         />
       </div>
-      <p class="mt-2 mb-0 ml-0.5 text-[11.5px] leading-[1.45] text-muted">La hora va en el centro. Con la isla abierta, los indicadores de los lados rotan entre las páginas que actives aquí.</p>
+      <p class="mt-2 mb-0 ml-0.5 text-[11.5px] leading-[1.45] text-muted">La hora va en el centro; los lados rotan entre las páginas activas.</p>
     </section>
     </div>
 
-    <div v-show="tab === 'music'" :id="'panel-music'" role="tabpanel" :aria-labelledby="'tab-music'" class="grid gap-[22px]">
+    <div v-show="tab === 'music'" :id="'panel-music'" role="tabpanel" :aria-labelledby="'tab-music'" class="tab-panel grid gap-[22px]">
     <section>
       <h2 :class="H2">Reproducción</h2>
       <div :class="PANEL">
@@ -560,150 +584,163 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
         <SettingsToggle
           v-model="settings.lyrics"
           name="Letras sincronizadas"
-          desc="Solo con servicios de streaming. Busca la letra en lrclib.net enviando título y artista."
+          desc="Busca la letra en lrclib.net (envía título y artista)."
         />
 
         <SettingsToggle
           v-model="settings.audioVisualizer"
           name="Visualizador de audio real"
-          desc="La onda de la isla sigue el sonido que sale por tus altavoces. Escucha la salida del sistema solo para medir su nivel: no guarda nada ni lo envía."
+          desc="La onda sigue el sonido del sistema. Solo mide su nivel: no guarda ni envía nada."
         />
       </div>
     </section>
     </div>
 
-    <div v-show="tab === 'alerts'" :id="'panel-alerts'" role="tabpanel" :aria-labelledby="'tab-alerts'" class="grid gap-[22px]">
+    <div v-show="tab === 'alerts'" :id="'panel-alerts'" role="tabpanel" :aria-labelledby="'tab-alerts'" class="tab-panel grid gap-[22px]">
     <section>
       <h2 :class="H2">Avisos del sistema</h2>
       <div :class="PANEL">
         <SettingsToggle
           v-model="settings.notifications"
           name="Avisar de sucesos del sistema"
-          desc="La isla se ensancha unos segundos y vuelve a su sitio."
+          desc="La isla se ensancha unos segundos."
         />
+        <div :class="ROW">
+          <label class="grid min-w-0 gap-0.5" for="notification-style">
+            <span class="font-medium">Formato de los avisos</span>
+            <span :class="DESC">Completa despliega la isla con el texto; Discreta es un círculo con el icono. Cada app puede tener el suyo.</span>
+          </label>
+          <SettingsSelect
+            id="notification-style"
+            v-model="settings.notificationStyle"
+            :options="[
+              { value: 'panel', label: 'Completa' },
+              { value: 'bubble', label: 'Discreta' },
+            ]"
+          />
+        </div>
         <SettingsToggle
           v-model="settings.notifyCharger"
           sub
           :disabled="!settings.notifications"
           name="Cargador"
-          desc="Al conectarlo se abre con la batería cargándose."
+          desc="Al conectarlo o desconectarlo."
         />
         <SettingsToggle
           v-model="settings.notifyVolume"
           sub
           :disabled="!settings.notifications"
           name="Volumen"
-          desc="Al subirlo, bajarlo o silenciar. Con la isla abierta no aparece."
+          desc="Al cambiarlo. No aparece con la isla abierta."
         />
         <SettingsToggle
           v-model="settings.notifyLowBattery"
           sub
           :disabled="!settings.notifications"
           name="Batería baja"
-          desc="Al llegar al 20 % y al 10 % sin cargador."
+          desc="Al llegar al 20 % y al 10 %."
         />
         <SettingsToggle
           v-model="settings.notifyWifi"
           sub
           :disabled="!settings.notifications"
           name="Wi-Fi"
-          desc="Al conectarse a una red, con el nombre de la red."
+          desc="Al conectarse a una red."
         />
         <SettingsToggle
           v-model="settings.notifyInternet"
           sub
           :disabled="!settings.notifications"
           name="Internet"
-          desc="Al perder la conexión a internet y al recuperarla."
+          desc="Al perder o recuperar la conexión."
         />
         <SettingsToggle
           v-model="settings.notifyBluetooth"
           sub
           :disabled="!settings.notifications"
           name="Bluetooth"
-          desc="Al conectar o desconectar un dispositivo emparejado."
+          desc="Al conectar o desconectar un dispositivo."
         />
         <SettingsToggle
           v-model="settings.notifyTrack"
           sub
           :disabled="!settings.notifications"
           name="Canción"
-          desc="Presenta la canción al empezar a sonar o al cambiar de pista, desde cualquier app."
+          desc="Al empezar a sonar o cambiar de pista."
         />
         <SettingsToggle
           v-model="settings.notifyPrivacy"
           sub
           :disabled="!settings.notifications"
           name="Micrófono y cámara"
-          desc="Un punto naranja o verde en la isla mientras una aplicación los usa, y un aviso al empezar. Solo lee el nombre de la aplicación."
+          desc="Punto de color mientras una app los usa. Solo lee su nombre."
         />
         <SettingsToggle
           v-model="settings.notifyDownloads"
           sub
           :disabled="!settings.notifications"
           name="Descargas"
-          desc="Velocidad de las descargas del navegador y aviso al terminar. Sin porcentaje: el navegador no dice cuánto falta."
+          desc="Velocidad y aviso al terminar. Sin porcentaje."
         />
         <SettingsToggle
           v-model="settings.notifyUsb"
           sub
           :disabled="!settings.notifications"
           name="USB"
-          desc="Al conectar o retirar una memoria USB o una tarjeta SD."
+          desc="Al conectar o retirar una unidad."
         />
         <SettingsToggle
           v-model="settings.notifyLockKeys"
           sub
           :disabled="!settings.notifications"
           name="Bloq Mayús y Bloq Num"
-          desc="Al activar o apagar cualquiera de las dos."
+          desc="Al activar o apagar."
         />
         <SettingsToggle
           v-model="settings.notifyFocus"
           sub
           :disabled="!settings.notifications"
           name="No molestar"
-          desc="Al activar o apagar el modo de concentración de Windows."
+          desc="Al activar o apagar el modo."
         />
         <SettingsToggle
           v-model="settings.notifyBrightness"
           sub
           :disabled="!settings.notifications"
           name="Brillo"
-          desc="Al cambiar el brillo de la pantalla del portátil."
+          desc="Al cambiar el brillo del portátil."
         />
       </div>
     </section>
     </div>
 
-    <div v-show="tab === 'apps'" :id="'panel-apps'" role="tabpanel" :aria-labelledby="'tab-apps'" class="grid gap-[22px]">
+    <div v-show="tab === 'apps'" :id="'panel-apps'" role="tabpanel" :aria-labelledby="'tab-apps'" class="tab-panel grid gap-[22px]">
     <section>
       <h2 :class="H2">Notificaciones de aplicaciones</h2>
       <div :class="PANEL">
         <SettingsToggle
           v-model="settings.appNotifications"
           name="Mostrar notificaciones en la isla"
-          desc="Lee las notificaciones de Windows para enseñar remitente y mensaje. Nada se guarda. Con WhatsApp activado, se descarga además la foto de perfil del remitente desde los servidores de WhatsApp. Requiere tener activado el acceso a notificaciones en Windows."
+          desc="Muestra remitente y mensaje; no se guarda nada. Con WhatsApp, descarga la foto del remitente. Requiere el acceso a notificaciones de Windows."
         />
 
         <!-- Sin permiso de Windows la opción parece activa pero no llega nada. -->
         <div
           v-if="settings.appNotifications && access !== 'allowed'"
-          class="flex items-center justify-between gap-3 bg-[rgba(255,138,112,.08)] px-3.5 py-[11px] text-[11.5px] leading-[1.45] text-[#ffb08a]"
+          class="flex items-center justify-between gap-3 bg-[rgba(214,96,60,.1)] px-3.5 py-[11px] text-[11.5px] leading-[1.45] text-[#a8431f]"
           role="alert"
         >
           <span>
             <template v-if="access === 'unavailable'">
-              Este equipo no permite leer las notificaciones de otras aplicaciones.
+              Este equipo no permite leer notificaciones de otras apps.
             </template>
             <template v-else>
-              Windows no deja que la isla lea tus notificaciones. Actívalo en
-              Configuración → Privacidad y seguridad → Notificaciones.
+              Windows bloquea el acceso. Actívalo en Configuración → Privacidad → Notificaciones.
             </template>
           </span>
           <button
             v-if="access !== 'unavailable'"
-            class="flex-none cursor-pointer rounded-lg border border-[rgba(255,138,112,.35)] bg-transparent px-[11px] py-[6px] text-[11.5px] text-[#ffb08a] transition-colors duration-150 hover:bg-[rgba(255,138,112,.14)]"
+            class="flex-none cursor-pointer rounded-lg border border-[rgba(214,96,60,.4)] bg-transparent px-[11px] py-[6px] text-[11.5px] text-[#a8431f] transition-colors duration-150 hover:bg-[rgba(214,96,60,.14)]"
             @click="call('toasts_open_privacy')"
           >Abrir Windows</button>
         </div>
@@ -713,15 +750,12 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
             v-if="settings.notificationApps.length === 0"
             class="m-0 px-3.5 py-[11px] text-[11.5px] leading-[1.45] text-muted"
           >
-            Aún no se ha detectado ninguna aplicación. Aparecerán aquí cuando envíen una
-            notificación; todas empiezan desactivadas.
+            Aún no se detectó ninguna app. Aparecerán al enviar una notificación, desactivadas.
           </p>
-          <!-- Con muchas aplicaciones detectadas la lista haría crecer la
-               ventana sin límite: se queda en un alto fijo y se desplaza por
-               dentro. -->
+          <!-- Sin altura máxima: la ventana ya se desplaza, y un recuadro fijo con espacio libre debajo obligaba a desplazar dos veces. -->
           <div
             v-else
-            class="max-h-44 overflow-y-auto [scrollbar-color:rgba(255,255,255,0.16)_transparent] [scrollbar-width:thin] [&>*+*]:border-t [&>*+*]:border-line"
+            class="[&>*]:relative [&>*+*]:before:absolute [&>*+*]:before:top-0 [&>*+*]:before:right-0 [&>*+*]:before:left-7 [&>*+*]:before:h-px [&>*+*]:before:bg-line [&>*+*]:before:content-['']"
           >
             <SettingsToggle
               v-for="entry in settings.notificationApps"
@@ -729,7 +763,19 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
               v-model="entry.enabled"
               sub
               :name="entry.name"
-            />
+            >
+              <!-- Solo con la app activada. «General» sigue al formato de la pestaña Avisos. -->
+              <Transition name="soft">
+                <span v-if="entry.enabled" class="flex">
+                  <SettingsSelect
+                    :model-value="entry.style ?? 'default'"
+                    :options="APP_STYLES"
+                    compact
+                    @update:model-value="entry.style = $event === 'default' ? null : ($event as 'panel' | 'bubble')"
+                  />
+                </span>
+              </Transition>
+            </SettingsToggle>
           </div>
         </template>
       </div>
@@ -744,7 +790,7 @@ const DESC = "text-[11.5px] leading-[1.4] text-muted";
 
     <footer class="mt-auto">
       <button
-        class="cursor-pointer rounded-lg border border-line bg-transparent px-[13px] py-[7px] text-[12px] text-[#c6c8d3] transition-colors duration-150 hover:bg-white/6 hover:text-ink"
+        class="cursor-pointer rounded-lg border border-line bg-transparent px-[13px] py-[7px] text-[12px] text-muted transition-colors duration-150 hover:bg-hover hover:text-ink"
         @click="restoreDefaults"
       >Restaurar valores</button>
     </footer>

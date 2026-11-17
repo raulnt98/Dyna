@@ -84,7 +84,26 @@ struct Shape {
     /// Separación entre el borde de la pantalla y la isla (0 = pegada). Solo la
     /// tiene la vista expandida redondeada, que flota en vez de colgar.
     top_offset: f64,
+    /// Cuánto ha brotado la burbuja de notificación de un costado (0 = no hay, 1 = entera). Va en la forma
+    /// porque el recorte de la ventana también tiene que abarcarla y animarse con ella.
+    bubble: f64,
 }
+
+/// Diámetro de la burbuja de notificación, en píxeles lógicos: lo que mide la píldora cerrada (34). Lo replica
+/// `.toast-bubble` en IslandApp.vue; si cambias una medida, cambia la otra.
+const BUBBLE_SIZE: f64 = 34.0;
+/// Separación entre el costado derecho de la isla (muesca incluida) y la burbuja. Igual que en el CSS.
+const BUBBLE_GAP: f64 = 6.0;
+/// Cuánto sale la burbuja desde detrás de la isla: nace esa distancia hacia dentro y se desliza hasta su sitio mientras
+/// crece (`translateX(-40px) scale(0)` → `translateX(0) scale(1)` en `.toast-bubble`). Una sola curva para las dos cosas.
+const BUBBLE_TRAVEL: f64 = 40.0;
+/// Grosor del cuello que une la burbuja con la isla al nacer, y cuánto entra en la isla por su costado. Se afina hasta
+/// romperse (`.toast-neck`): el grosor es `NECK_HEIGHT` × (1 − progreso).
+const NECK_HEIGHT: f64 = 24.0;
+const NECK_INSET: f64 = 6.0;
+
+/// ¿Hay una burbuja de notificación a la vista (o brotando)? La pide la página con `island_bubble`.
+static BUBBLE_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 impl Shape {
     /// Forma de reposo para un tamaño de isla. La altura distingue el estado:
@@ -125,6 +144,7 @@ impl Shape {
             radius,
             top_radius,
             top_offset,
+            bubble: if BUBBLE_ON.load(std::sync::atomic::Ordering::SeqCst) { 1.0 } else { 0.0 },
         }
     }
 
@@ -137,6 +157,7 @@ impl Shape {
             radius: mix(from.radius, to.radius),
             top_radius: mix(from.top_radius, to.top_radius),
             top_offset: mix(from.top_offset, to.top_offset),
+            bubble: mix(from.bubble, to.bubble),
         }
     }
 }
@@ -150,6 +171,7 @@ static DISPLAY: std::sync::Mutex<Shape> = std::sync::Mutex::new(Shape {
     radius: 18.0,
     top_radius: 0.0,
     top_offset: 0.0,
+    bubble: 0.0,
 });
 
 /// Generación de la animación en curso: al cambiar, el hilo anterior se retira.
@@ -165,7 +187,17 @@ const MORPH_SECS: f64 = 0.58;
 /// Hace falta replicarla: el CSS anima el tamaño de la píldora y Rust el del
 /// recorte, y si las curvas difieren uno asoma por detrás del otro.
 fn morph_ease(t: f64) -> f64 {
-    let (x1, y1, x2, y2) = (0.22, 1.0, 0.36, 1.0);
+    cubic_bezier_ease(t, 0.22, 1.0, 0.36, 1.0)
+}
+
+/// `cubic-bezier(.4, 0, .2, 1)`, la curva de la burbuja de notificación (`.toast-bubble`): más pareja que la de la
+/// isla, que gasta casi todo el movimiento en el primer tercio. Una burbuja que brota tiene que verse crecer.
+fn bubble_ease(t: f64) -> f64 {
+    cubic_bezier_ease(t, 0.4, 0.0, 0.2, 1.0)
+}
+
+/// Curva `cubic-bezier(x1, y1, x2, y2)` como la entiende el CSS.
+fn cubic_bezier_ease(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     let bezier = |s: f64, a: f64, b: f64| {
         let inv = 1.0 - s;
         3.0 * inv * inv * s * a + 3.0 * inv * s * s * b + s * s * s
@@ -317,7 +349,7 @@ unsafe fn set_island_region(
     };
 
     let to_px = |value: f64| (value * scale).round() as i32;
-    let Shape { width, height, notch, radius, top_radius, top_offset } = *shape;
+    let Shape { width, height, notch, radius, top_radius, top_offset, bubble } = *shape;
     let right = left + width;
     // `CreateRoundRectRgn` deja fuera su columna derecha, a diferencia de
     // `CreateRectRgn` (que usan las muescas): sin el +1 queda un hueco de un
@@ -343,6 +375,33 @@ unsafe fn set_island_region(
         top_radius * scale + g as f64,
         notch * scale,
     );
+    // Burbuja de notificación: un círculo a la derecha que nace detrás de la isla y sale deslizándose mientras crece
+    // (`translateX` + `scale` desde `transform-origin: left center` en el CSS), con el mismo anillo de 1 px que la isla
+    // en el estilo flotante. Con menos de un píxel de radio no se dibuja: el anillo lo convertiría en un punto.
+    let region = if bubble * BUBBLE_SIZE / 2.0 * scale >= 1.0 {
+        use windows::Win32::Graphics::Gdi::{CombineRgn, CreateEllipticRgn, RGN_OR};
+        let r = BUBBLE_SIZE / 2.0 * bubble;
+        let x0 = right + notch + BUBBLE_GAP - BUBBLE_TRAVEL * (1.0 - bubble);
+        let cy = top_offset + BUBBLE_SIZE / 2.0;
+        // Como `CreateRoundRectRgn`, un círculo de GDI deja fuera su última columna y su última fila: medido en la app real,
+        // el recorte acababa 1 px antes por la derecha y por abajo y la burbuja salía «chueca» (más borde oscuro a la izquierda
+        // y arriba que a la derecha y abajo). El +1 de más lo deja simétrico.
+        let ellipse = CreateEllipticRgn(to_px(x0) - g, to_px(cy - r) - g, to_px(x0 + 2.0 * r) + g + 1, to_px(cy + r) + g + 1);
+        let _ = CombineRgn(Some(region), Some(region), Some(ellipse), RGN_OR);
+        let _ = DeleteObject(HGDIOBJ(ellipse.0));
+        // El cuello: una barra del costado de la isla al centro de la burbuja, cada vez más fina.
+        let neck_h = NECK_HEIGHT * (1.0 - bubble);
+        let (neck_left, neck_right) = (right - NECK_INSET, x0 + r);
+        if neck_h * scale >= 2.0 && neck_right > neck_left {
+            use windows::Win32::Graphics::Gdi::CreateRectRgn;
+            let bar = CreateRectRgn(to_px(neck_left), to_px(cy - neck_h / 2.0) - g, to_px(neck_right), to_px(cy + neck_h / 2.0) + g);
+            let _ = CombineRgn(Some(region), Some(region), Some(bar), RGN_OR);
+            let _ = DeleteObject(HGDIOBJ(bar.0));
+        }
+        region
+    } else {
+        region
+    };
     // Windows se queda con la región al aceptarla: solo hay que liberarla si
     // la llamada falla.
     if SetWindowRgn(hwnd, Some(region), true) == 0 {
@@ -475,7 +534,9 @@ fn animate_island(window: &WebviewWindow, width: f64, height: f64, secs: f64) {
                 }
                 return;
             }
-            let shape = Shape::lerp(from, target, morph_ease(t));
+            let mut shape = Shape::lerp(from, target, morph_ease(t));
+            // La burbuja lleva su propia curva (ver `bubble_ease`).
+            shape.bubble = from.bubble + (target.bubble - from.bubble) * bubble_ease(t);
             #[cfg(windows)]
             if let Some(raw) = hwnd_raw {
                 unsafe {
@@ -771,6 +832,19 @@ fn island_resize(window: WebviewWindow, width: f64, height: f64, duration_ms: Op
     animate_island(&window, width, height, secs);
 }
 
+/// Hace brotar (o recoge) la burbuja de notificación de un costado de la isla.
+///
+/// Solo mueve el recorte de la ventana: el dibujo es de la página, que lo lanza a la vez con la misma curva y
+/// duración (`.toast-bubble`). Como la burbuja forma parte de `Shape`, comparte hilo de animación con la isla.
+#[tauri::command]
+fn island_bubble(window: WebviewWindow, visible: bool, duration_ms: Option<f64>) {
+    BUBBLE_ON.store(visible, std::sync::atomic::Ordering::SeqCst);
+    bring_to_front(&window);
+    let secs = duration_ms.map_or(MORPH_SECS, |ms| (ms / 1000.0).clamp(0.15, 1.0));
+    let (width, height) = ISLAND_SIZE.lock().map(|size| *size).unwrap_or((116.0, 34.0));
+    animate_island(&window, width, height, secs);
+}
+
 /// Deja pasar los clics a lo que haya debajo, o vuelve a capturarlos.
 ///
 /// Mientras la isla está compacta no debe robar clics al escritorio; al
@@ -873,6 +947,15 @@ fn settings_set(app: tauri::AppHandle, settings: Settings) {
     }
 }
 
+/// Empieza a arrastrar la ventana de ajustes desde su cabecera. Va como comando propio porque `data-tauri-drag-region` pide
+/// un permiso de ventana (`core:window:allow-start-dragging`) que habría que dar a esta ventana en las capacidades.
+#[tauri::command]
+fn settings_drag(window: WebviewWindow) {
+    if window.label() == "settings" {
+        let _ = window.start_dragging();
+    }
+}
+
 /// Cierra la ventana de ajustes sin terminar la aplicación.
 #[tauri::command]
 fn settings_close(app: tauri::AppHandle) {
@@ -897,8 +980,12 @@ fn open_settings(app: &tauri::AppHandle) {
         "settings",
         tauri::WebviewUrl::App("settings.html".into()),
     )
-    .title("Ajustes · Dynamic Island")
+    .title("Ajustes · Dyna")
     .inner_size(440.0, 640.0)
+    // Sin la barra de título de Windows: la cabecera del propio panel (título, «Guardado» y cerrar) hace de barra y se arrastra
+    // desde ahí (`settings_drag`). La sombra se deja para que la ventana siga teniendo borde y esquinas redondeadas en Windows 11.
+    .decorations(false)
+    .shadow(true)
     // Tamaño fijo: el panel está maquetado para estas medidas. `resizable(false)`
     // por sí solo no siempre desactiva el botón de maximizar, así que se quita
     // aparte y se fijan también los límites.
@@ -960,7 +1047,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     let mut builder = TrayIconBuilder::with_id("island-tray")
         .menu(&menu)
-        .tooltip("Dynamic Island")
+        .tooltip("Dyna")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" => open_settings(app),
@@ -990,7 +1077,33 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Instancia única: un segundo arranque (inicio automático más un doble clic, o la copia de desarrollo junto a la
+/// instalada) abriría una segunda isla encima de la primera. Se reserva un mutex con nombre; el sistema lo libera solo
+/// al cerrarse el proceso, aunque muera de golpe. La compilación de desarrollo usa otro nombre para poder probar
+/// con la instalada abierta. Devuelve `false` si ya hay otra isla corriendo.
+#[cfg(windows)]
+fn claim_single_instance() -> bool {
+    use windows::core::w;
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+
+    let name = if cfg!(debug_assertions) { w!("Local\\Dyna.dev.single") } else { w!("Local\\Dyna.single") };
+    // El manejador se deja abierto a propósito: vive tanto como el proceso.
+    match unsafe { CreateMutexW(None, false, name) } {
+        Ok(_) => unsafe { GetLastError() != ERROR_ALREADY_EXISTS },
+        Err(_) => true,
+    }
+}
+
+#[cfg(not(windows))]
+fn claim_single_instance() -> bool {
+    true
+}
+
 pub fn run() {
+    if !claim_single_instance() {
+        return;
+    }
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             media_state,
@@ -1000,9 +1113,11 @@ pub fn run() {
             media_seek,
             island_resize,
             island_set_interactive,
+            island_bubble,
             settings_get,
             settings_set,
             settings_close,
+            settings_drag,
             volume_get,
             volume_set,
             volume_toggle_mute,
@@ -1023,6 +1138,21 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Solo en desarrollo: con el archivo marcador `%TEMP%\dyna-open-settings` presente, los ajustes se abren al arrancar. Sirve
+            // para capturar y medir la ventana real sin tener que pulsar el icono de la bandeja (que no se puede automatizar bien).
+            #[cfg(debug_assertions)]
+            if std::env::temp_dir().join("dyna-open-settings").exists() {
+                open_settings(&handle);
+            }
+
+            // El inicio automático guarda la ruta del ejecutable que lo activó: se renueva en cada arranque para que apunte
+            // siempre a esta copia (al renombrar la app, el valor antiguo apuntaba a `dynamic-island.exe`). No en desarrollo:
+            // la copia de `target\debug` se quedaría como la que arranca con Windows.
+            #[cfg(not(debug_assertions))]
+            if settings::current().autostart {
+                settings::set_autostart(true);
+            }
 
             // La ventana nace oculta: se coloca arriba y centrada antes de
             // mostrarla, para que no aparezca un instante en otra posición.
@@ -1240,7 +1370,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Dynamic Island");
+        .expect("error while running Dyna");
 }
 
 #[cfg(test)]

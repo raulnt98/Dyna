@@ -171,7 +171,7 @@ const SWATCH: Record<Wallpaper, string> = {
       <a
         class="inline-flex items-center gap-2.5 text-[15px] font-[650] tracking-[-.035em] text-[#f6f6f8] no-underline"
         href="#"
-        aria-label="Dynamic Island para Windows"
+        aria-label="Dyna para Windows"
       >
         <span class="grid size-[29px] place-items-center rounded-[9px] bg-green text-[#090b12]">
           <IconBrandWindows class="size-[17px] stroke-2" />

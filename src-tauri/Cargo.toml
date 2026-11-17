@@ -1,13 +1,13 @@
 [package]
-name = "dynamic-island"
-version = "0.5.0"
-description = "Dynamic Island para escritorio Windows"
+name = "dyna"
+version = "0.6.0"
+description = "Dyna: isla dinámica para escritorio Windows"
 authors = ["Raul Nuñez"]
 license = "MIT"
 edition = "2021"
 
 [lib]
-name = "dynamic_island_lib"
+name = "dyna_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

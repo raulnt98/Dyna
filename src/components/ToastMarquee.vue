@@ -49,7 +49,7 @@ watch(() => props.text, () => nextTick(measure));
 
 <template>
   <!-- Tres líneas: 3 × 1,3 em. Con menos texto la caja mide lo que el texto. -->
-  <span ref="box" class="block max-h-[calc(1.3em*3)] overflow-hidden text-[12.5px] leading-[1.3] text-[#d4d4db]">
+  <span ref="box" class="block max-h-[calc(1.3em*3)] overflow-hidden text-[12.5px] leading-[1.3] text-white/72">
     <span
       ref="body"
       class="block [overflow-wrap:anywhere]"

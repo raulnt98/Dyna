@@ -231,6 +231,7 @@ fn remember_apps(app: &AppHandle, names: &HashSet<String>) {
         config.notification_apps.push(crate::settings::NotificationApp {
             name: name.clone(),
             enabled: false,
+            style: None,
         });
     }
     if config.notification_apps.len() == before {

@@ -1,7 +1,7 @@
 {
-  "name": "dynamic-island",
+  "name": "dyna",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@fontsource-variable/roboto-condensed": "^5.3.0",
     "@formkit/auto-animate": "^0.10.2",
     "@tabler/icons-vue": "^3.34.1",
     "@tauri-apps/api": "^2.8.0",

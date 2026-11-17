@@ -38,6 +38,17 @@ pub enum CornerStyle {
     Round,
 }
 
+/// Cómo se enseña una notificación de otra aplicación.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationStyle {
+    /// La isla se despliega con el remitente y el mensaje.
+    #[default]
+    Panel,
+    /// Una burbuja con solo el icono de la app brota de un costado de la isla, sin tocar lo que ella muestre.
+    Bubble,
+}
+
 /// Una aplicación detectada y si el usuario quiere ver sus notificaciones.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +56,10 @@ pub struct NotificationApp {
     /// Nombre tal como lo informa Windows («Microsoft Teams»).
     pub name: String,
     pub enabled: bool,
+    /// Formato propio de esta app: completa (panel) o discreta (burbuja). `None` sigue al ajuste general
+    /// (`notification_style`). Un archivo antiguo no lo trae: de ahí el `default`.
+    #[serde(default)]
+    pub style: Option<NotificationStyle>,
 }
 
 /// Preferencias que el usuario puede cambiar desde el panel.
@@ -119,6 +134,10 @@ pub struct Settings {
     /// Outlook…). Lee contenido privado de Windows, aunque no sale del equipo:
     /// por eso nace apagado.
     pub app_notifications: bool,
+    /// Formato de los avisos: panel desplegado o burbuja discreta con el icono. Vale para las notificaciones de apps y
+    /// para los avisos del sistema discretos (cargador, batería baja, Wi-Fi, internet, Bluetooth, USB, bloqueos, No
+    /// molestar) y el volumen y el brillo (con un borde que se dibuja según el nivel).
+    pub notification_style: NotificationStyle,
     /// Aplicaciones que la isla ha visto enviar notificaciones, cada una con su
     /// interruptor. La lista la rellena la propia app al detectarlas (ver
     /// `toasts.rs`); el usuario solo activa las que quiere.
@@ -167,6 +186,7 @@ impl Default for Settings {
             home_batteries: true,
             lyrics: true,
             app_notifications: false,
+            notification_style: NotificationStyle::Panel,
             notification_apps: Vec::new(),
             skip_seconds: 10.0,
             home_seconds: true,
@@ -212,9 +232,19 @@ pub fn store(settings: &Settings) {
 /// Ruta del archivo de ajustes, junto a los datos del usuario.
 fn path() -> Option<std::path::PathBuf> {
     let base = std::env::var_os("APPDATA")?;
-    let dir = std::path::PathBuf::from(base).join("DynamicIsland");
+    let base = std::path::PathBuf::from(base);
+    let dir = base.join("Dyna");
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("settings.json"))
+    let file = dir.join("settings.json");
+    // La app se llamaba «Dynamic Island» y guardaba en `%APPDATA%\DynamicIsland`: la primera vez se copian sus ajustes, para
+    // que renombrarla no devuelva todo a los valores por defecto. La carpeta antigua no se toca.
+    if !file.exists() {
+        let old = base.join("DynamicIsland").join("settings.json");
+        if old.exists() {
+            let _ = std::fs::copy(old, &file);
+        }
+    }
+    Some(file)
 }
 
 /// Lee los ajustes del disco; ante cualquier fallo, usa los valores por defecto.
@@ -241,6 +271,12 @@ fn save(settings: &Settings) {
 /// Clave del registro donde Windows guarda los programas de inicio.
 #[cfg(target_os = "windows")]
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+/// Nombre del valor de inicio automático, y el que tenía cuando la app se llamaba «Dynamic Island» (se borra al activar o
+/// desactivar, para que la copia antigua no arranque a la vez).
+#[cfg(target_os = "windows")]
+const RUN_VALUE: &str = "Dyna";
+#[cfg(target_os = "windows")]
+const OLD_RUN_VALUE: &str = "DynamicIsland";
 
 /// Activa o desactiva el arranque con Windows para el usuario actual.
 ///
@@ -254,13 +290,21 @@ pub fn set_autostart(enabled: bool) -> bool {
     let value = format!("\"{}\"", exe.display());
 
     // Se usa reg.exe para no añadir una dependencia solo por esto.
+    let delete = |name: &str| {
+        std::process::Command::new("reg")
+            .args(["delete", &format!(r"HKCU\{RUN_KEY}"), "/v", name, "/f"])
+            .output()
+    };
+    // El valor antiguo se retira siempre: si no, la copia anterior seguiría arrancando con Windows junto a esta.
+    let _ = delete(OLD_RUN_VALUE);
+
     let output = if enabled {
         std::process::Command::new("reg")
             .args([
                 "add",
                 &format!(r"HKCU\{RUN_KEY}"),
                 "/v",
-                "DynamicIsland",
+                RUN_VALUE,
                 "/t",
                 "REG_SZ",
                 "/d",
@@ -269,15 +313,7 @@ pub fn set_autostart(enabled: bool) -> bool {
             ])
             .output()
     } else {
-        std::process::Command::new("reg")
-            .args([
-                "delete",
-                &format!(r"HKCU\{RUN_KEY}"),
-                "/v",
-                "DynamicIsland",
-                "/f",
-            ])
-            .output()
+        delete(RUN_VALUE)
     };
 
     output.map(|o| o.status.success()).unwrap_or(false)
@@ -314,5 +350,14 @@ mod tests {
         // Y sin nada, con muescas.
         let none: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(none.island_style, CornerStyle::Notch);
+    }
+
+    #[test]
+    fn una_app_sin_formato_propio_sigue_al_general() {
+        // Un archivo anterior a esta opción no trae `style`: sigue al ajuste general.
+        let old: Settings = serde_json::from_str(r#"{"notificationApps":[{"name":"Teams","enabled":true}]}"#).unwrap();
+        assert_eq!(old.notification_apps[0].style, None);
+        let own: Settings = serde_json::from_str(r#"{"notificationApps":[{"name":"Teams","enabled":true,"style":"bubble"}]}"#).unwrap();
+        assert_eq!(own.notification_apps[0].style, Some(NotificationStyle::Bubble));
     }
 }

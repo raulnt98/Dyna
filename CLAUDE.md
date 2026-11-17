@@ -1,4 +1,7 @@
-# Dynamic Island
+# Dyna
+
+(Antes «Dynamic Island»: el proceso es `dyna.exe`, el crate `dyna` y la librería `dyna_lib`. El identificador de Tauri sigue siendo
+`com.dynamicisland.desktop` **a propósito**: de él cuelga el perfil de WebView2 con los favoritos (`localStorage`), y cambiarlo los borraría.)
 
 Isla dinámica para escritorio Windows: ventana Tauri transparente, sin bordes,
 anclada al borde superior y por encima del resto de ventanas. Lee y controla el
@@ -82,7 +85,7 @@ error de compilación.
 | Grupo | Comandos | Módulo Rust |
 | --- | --- | --- |
 | Multimedia | `media_state`, `media_play_pause`, `media_next`, `media_previous`, `media_seek` | `smtc.rs` |
-| Ventana | `island_resize`, `island_set_interactive` | `lib.rs` |
+| Ventana | `island_resize`, `island_set_interactive`, `island_bubble` | `lib.rs` |
 | Ajustes | `settings_get`, `settings_set`, `settings_close` | `settings.rs` |
 | Volumen | `volume_get`, `volume_set`, `volume_toggle_mute` | `volume.rs` |
 | Salidas de audio | `audio_outputs`, `audio_output_set` | `outputs.rs` |
@@ -238,7 +241,7 @@ cualquier píxel transparente dentro de la región, así que si el recorte cambi
 de golpe asoma una forma vieja durante los 0,58 s del CSS. `animate_island`
 (`lib.rs`) lo interpola en un hilo con la misma curva y duración que
 `.island-morph`, y `island_resize` se avisa a la vez que arranca el CSS, al
-crecer y al encoger. La duración no es fija: 0,58 s cuando abre o cierra el usuario, 0,64 s cuando un
+crecer y al encoger. **La canción presentada (`track`) va ×1,4 más lenta** (a petición del usuario): 0,90 s al entrar y 0,94 s al retirarse (`MORPH_TRACK_IN_MS`/`OUT`, IslandApp.vue; Rust acota a 1 s), con su contenido a juego (`.np-slow` en style.css: dos clases para ganar a las reglas generales, retrasos escalados). La duración no es fija: 0,58 s cuando abre o cierra el usuario, 0,64 s cuando un
 aviso del sistema abre la isla y 0,68 s cuando se retira (se alargaron desde 0,40 y 0,46 porque se sentían bruscos; el contenido entra a partir de 0,16–0,4 s y sale en 0,46 s, ver «Movimiento» en `style.css`). `IslandApp.vue` la fija en la variable
 CSS `--morph` (píldora y muescas) y la pasa a `island_resize` (`duration_ms`) en la misma llamada:
 las dos deben coincidir, o el recorte asoma por detrás de la píldora. El recorte **no debe ir por delante** de la píldora (se
@@ -276,8 +279,78 @@ notificaciones de apps (`data.tall`) tienen su propio panel, del mismo tamaño q
 formato necesita su rama en `targetSize` (`IslandApp.vue`) y su estado en
 `TheIsland.vue`, o la ventana nativa no crece con él.
 
+**La burbuja de notificación** (`notificationStyle: bubble`, ajuste «Formato de los avisos» en la pestaña Avisos; vale a la vez para las
+notificaciones de apps y para los avisos del sistema; por defecto `panel`) es la alternativa discreta al panel: un círculo de 34 px, **del mismo color
+que la isla** (#050506; con cristal, su mismo velo sin la imagen del escritorio), que se **desprende de la isla** por el costado
+derecho. Lleva el logo de la app (recortado con `trimLogo.ts`) o, en un aviso del sistema, el icono de su tipo con el color de
+su panel. Alertas que la usan (`BUBBLE_ALERTS`, IslandApp.vue): cargador, batería baja, Wi-Fi, internet, Bluetooth, USB, Bloq
+Mayús/Num, No molestar y el **volumen** y el **brillo**, que enseñan su nivel como un **borde que se va dibujando** alrededor de la burbuja
+(`.toast-bubble-ring`: anillo de 3 px, en el sentido de las agujas del reloj desde arriba, sobre una pista tenue; blanco el
+volumen, ámbar el brillo; `--ring` es una `@property` registrada y se anima 640 ms, la curva de la burbuja); el volumen
+lleva el altavoz y, en silencio, el altavoz tachado en gris con el anillo vacío; dura 2,6 s y se renueva en ráfaga sin
+repetir el «pop» mientras el icono no cambie); **no** la canción, ni micrófono/cámara, descargas o test
+de velocidad. **No pasa por la cola de avisos** (`queue` en IslandApp.vue; `notifications` es un envoltorio que desvía): no
+interrumpe, abre ni redimensiona la isla, y un cargador o un volumen pueden salir a la vez. Vive en `IslandApp.vue`
+(`showBubble`/`hideBubble`; 11 s a la vista las de apps y el doble de lo que dura el aviso en panel, mínimo 6 s, las alertas (la burbuja no lleva texto que leer, pero se tarda en reparar en ella); con el ratón
+encima no se retira y 2 s después de apartarlo sí) y se dibuja en `ToastBubble.vue`, hija de `.island-wrap`. Pulsarla abre la
+app de origen (`toast_open`) si es una notificación; en una alerta solo la recoge.
+
+**Cada app puede tener su formato** (`NotificationApp.style`: `None` sigue al general, o `panel` / `bubble`; en el panel de ajustes
+«General», «Completa» y «Discreta», solo en las apps activadas). El general (`notificationStyle`, «Completa»/«Discreta» en Avisos) manda
+sobre los avisos del sistema y sobre las apps sin formato propio. `IslandApp.vue` lo busca por nombre al llegar cada notificación
+(`notificationApps`, que recibe de `settings_get` y `settings://changed`). Un archivo de ajustes anterior no trae `style`
+(`#[serde(default)]`, con prueba). El valor «General» no se guarda: es `null`, y la lista de Reka UI no admite valores vacíos.
+
+**La burbuja se retira entera de una vez** (`hideBubble`): círculo, icono y borde de nivel se recogen juntos en la isla, sin fase previa de
+desenfoque (el usuario lo pidió así; se probó antes a apagar primero el contenido —`content-out`, 400 ms— y recoger el círculo después, y se
+descartó). **El círculo no puede desvanecerse él mismo**: Rust lo recorta con la ventana y Windows pinta de pálido cualquier píxel
+transparente dentro del recorte; por eso la salida es siempre un recogerse y no un fundido.
+
+**La animación es una gota que se suelta**, y la entrada y la salida son la misma, una al revés de la otra (640 ms cada
+una; al usuario le gustó la salida y pidió la misma apertura). La burbuja nace **detrás de la isla**, pequeña, y sale
+deslizándose (`translateX(-40px) scale(0)` → `translateX(0) scale(1)`, un solo `transform`) mientras un **cuello**
+(`.toast-neck`) la une a la isla: gordo al nacer (24 px) y cada vez más fino hasta romperse. Por la salida, la burbuja vuelve
+y el cuello se forma de nuevo. Curva `cubic-bezier(.4, 0, .2, 1)`, **no** la de la isla: esa gasta casi todo el movimiento en
+el primer tercio y la burbuja parecía aparecer de golpe.
+
+**Un respiro por pulsación** (volumen pulsado seguido): si un aviso repite el contenido de la burbuja a la vista, `bubblePulse`
+sube y `ToastBubble.vue` hincha el icono (`scale` 1 → 1,14 → 1) y pasa un velo de luz por el interior del círculo, 640 ms (la
+duración y la curva de la apertura y el cierre de la burbuja: el usuario pidió suavidad y respetar esa velocidad),
+reiniciándose con cada pulsación. Vale igual para el volumen y el brillo. **Siempre por dentro**: la burbuja no puede crecer (el recorte de Rust vale lo que su
+tamaño final) ni encogerse (en el estilo con muescas no hay anillo que tape el borde pálido).
+
+**Encendido y apagado se distinguen igual en todos los pares** (la burbuja no lleva texto): el mismo icono, en su color si
+está activo (cargador conectado, Bloq Mayús/Num activado, USB conectado, No molestar, Bluetooth y Wi-Fi conectados, internet
+restablecido) y **en gris y tachado** si no (`off` en `ToastBubble.vue`). Lo decide el envoltorio de `notifications`
+(IslandApp.vue) con `data.on` o `data.plugged`; el Bluetooth desconectado (`bluetooth-off`) y «Sin internet» (`internet`)
+vuelven a su icono base (`BUBBLE_BASE_KIND`) con `off`. Un aviso nuevo con estado apagado necesita su `data.on`.
+
+**Rust recorta la ventana con todo eso**: `Shape.bubble` (0–1, el progreso con `bubble_ease`) añade a la región un círculo y
+una barra (el cuello), y `island_bubble(visible, duration_ms)` los anima en el mismo hilo que la isla. Medidas que deben
+coincidir con el CSS: `BUBBLE_SIZE` 34, `BUBBLE_GAP` 6, `BUBBLE_TRAVEL` 40, `NECK_HEIGHT` 24 y `NECK_INSET` 6 (lib.rs) con
+`.toast-bubble` y `.toast-neck` (IslandApp.vue), y `bubble_ease` con la curva del CSS. El recorte nunca debe ir por delante
+de lo dibujado (se vería pálido): el cuello del CSS es a lo sumo más largo que el de Rust, que lo corta.
+**La burbuja y el cuello están siempre montados** (sin `v-if`): un elemento que se monta ya con `is-shown` no tiene estado
+inicial y el CSS no lo anima (la apertura salía de golpe mientras el cierre sí se animaba). Tampoco se re-monta mientras
+está a la vista (la región va en 1 y empezar de cero dejaría asomar la zona de más): un aviso nuevo solo cambia el icono
+(`bubble-pop`). Con la letra abierta (540 px) y el estilo con muescas no cabe entera en la ventana de 640 px y se recorta.
+**Verificado en la app real** (capturas de pantalla y medida de píxeles con `keybd_event` de volumen): el círculo ocupa
+exactamente 36 × 36 px, simétrico. Dos lecciones: (1) **GDI deja fuera la última columna y la última fila** de un círculo
+(`CreateEllipticRgn`, igual que `CreateRoundRectRgn`), así que el recorte lleva +1 por la derecha y por abajo; sin eso la
+burbuja salía «chueca» (más margen oscuro a la izquierda y arriba que a la derecha y abajo); (2) el anillo de nivel usa
+**medidas enteras** (`inset` 2 px, grosor 3 px, radios 12–15): con medios píxeles, a 1× el suavizado se repartía mal y el
+grosor salía desigual. **Iconos ultracentrados**: el icono mide **20 px** (par) porque (34 − 20)/2 = 7 cae en un cruce de píxeles; con 19 px todo salía +0,5 px abajo y a la derecha. El dibujo de algunos no está centrado en su caja, y `NUDGE` (`ToastBubble.vue`) lo compensa por tipo (batería −2,1 px en y, altavoz +1,75 px en x, Bluetooth y No molestar +0,4, Wi-Fi y Bloq Mayús −0,25), solo al icono y nunca al tachado, que va siempre en el centro (`top/left 50 %` + `translate`). Medido con píxeles reales: el centro de la caja que envuelve el dibujo queda a ≤ 0,13 px del centro del círculo en los 20 casos (script `cdp-center`: emite cada aviso en la demo, captura la burbuja ampliada y calcula el desvío). Un icono nuevo hay que medirlo igual.
+**Para medirlo**: subir el volumen con `keybd_event(0xAF)` y leer píxeles de `CopyFromScreen` (la
+burbuja no está excluida de la captura salvo con cristal); un volumen que no cambia no avisa, y la primera lectura tras
+arrancar es la línea base. Sin verificar: el cuello durante la animación.
+
 **El avatar de una notificación** es la foto del remitente, si no el icono de la app y si no la
-inicial. El icono sale de `AppDisplayInfo.GetLogo` (apps empaquetadas) o, para las clásicas, de
+inicial. Con foto **y** icono, este va como insignia en la esquina inferior derecha del avatar (estilo banner
+de móvil, por eso el panel ya no lleva el nombre de la app en texto). El logo que entrega Windows trae un margen
+transparente enorme (el dibujo ocupa la mitad) y en la insignia quedaba como un punto: `trimLogo.ts` mide el dibujo
+con un canvas, lo recorta y lo deja cuadrado, con caché por logo (si algo falla devuelve el original); «ahora» es fijo, el aviso siempre es reciente. A su lado va un botón «×» (evento `dismiss-notice`) que cierra
+el aviso **sin abrir la app de origen**: un toque en cualquier otro sitio de la isla sí la abre (`toggleIsland`), por eso el
+botón lleva `@click.stop`. Solo está en las notificaciones de apps; la canción presentada (`track`) no lo lleva. El icono sale de `AppDisplayInfo.GetLogo` (apps empaquetadas) o, para las clásicas, de
 `shell_icon.rs`. Ojo con el filtro `is_plausible`: los AUMID de apps sin identificador propio
 se derivan de su ruta (`{ID de carpeta}\Fortinet\FortiClient\FortiTray.exe`) y **llevan barras
 invertidas**; rechazarlas dejó sin icono a FortiClient. Solo se prohíbe `..`. Los avisos de
@@ -383,6 +456,22 @@ pantalla basta el `aria-label`. No los repongas, ni uno suelto (el primero en sa
 **La posición de la isla no es un ajuste:** siempre centrada y pegada al borde superior. `position` y `top_margin` siguen en `Settings`
 (para leer un `settings.json` antiguo) pero `pinned()` (settings.rs) los fuerza a `Center` y `0` al leer y al guardar. No añadas un selector.
 
+**Los textos del panel de ajustes son cortos a propósito** (una línea o dos, preciso y conciso; el usuario lo pidió para todo el panel).
+Los avisos de privacidad (qué se envía y adónde: Open-Meteo, lrclib.net, Cloudflare, la foto de WhatsApp) se acortan pero **no se quitan**.
+Una fila con un control extra (`SettingsToggle` con `<slot />`) lo agrupa con el interruptor a la derecha: como tercer hijo suelto,
+`justify-between` lo dejaba a mitad del hueco y cambiaba de sitio según el nombre. `SettingsSelect` tiene variante `compact`.
+La lista de apps no lleva altura máxima: la ventana ya se desplaza.
+
+**Gancho de desarrollo**: en la compilación de desarrollo, si existe el archivo `%TEMP%dyna-open-settings`, los ajustes se abren al arrancar (`lib.rs`, `setup`), para capturar y medir la ventana real sin pulsar el icono de la bandeja. Para inspeccionar su webview sin tocar la pantalla del usuario, arrancar con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` y conectarse por CDP; **cerrar ese puerto al terminar** (relanzar sin la variable). No capturar la pantalla con `CopyFromScreen` sin comprobar que la ventana está delante: recoge lo que haya encima, que puede ser privado.
+
+**La ventana de ajustes no lleva la barra de título de Windows** (`decorations(false)` y `shadow(true)`, que en Windows 11 deja
+borde y esquinas redondeadas): su cabecera hace de barra, con el logo (`public/logo-96.png`, una copia pequeña de `logo.png`, que
+pesa 1,8 MB), «Guardado» y cerrar. Se arrastra desde ahí con el comando `settings_drag` (`start_dragging`) y no con
+`data-tauri-drag-region`, que pide un permiso de ventana (`core:window:allow-start-dragging`) en las capacidades. **Paleta del
+panel**: la del logo, plata frío (muestreada de `public/logo.png`: #ededf0 → #b4b6be) con grafito como acento en vez del verde;
+vive en `settings.css` (`@theme`: `bg`, `panel`, `field`, `line`, `edge`, `hover`, `ink`, `muted`, `accent`, `control`). La isla
+sigue siendo negra. **Fuente: Roboto Condensed** (variable en peso, licencia OFL, paquete `@fontsource-variable/roboto-condensed`), **incluida en la app**: se declara con `@font-face` en `settings.css` apuntando a los dos subconjuntos latinos (`latin` y `latin-ext`, unos 85 KB; el paquete trae también cirílico, griego y vietnamita, que solo harían crecer el instalador) y no se puede contar con que esté instalada. Segoe UI Variable queda como respaldo. Al ser estrecha, los tamaños del panel son medio punto mayores que con Segoe (base 14, descripciones 12,5). Solo la usa el panel de ajustes: la isla no la lleva. **Estilo sobrio, según las pautas de Apple**: cabecera con el logo y solo «Dyna» (sin subtítulo, a petición del usuario); pestañas como control segmentado; grupos «inset» (esquinas de 11 px, separadores que empiezan a la altura del texto: pseudoelemento `before` en cada hijo de `PANEL`, no `border-t`); títulos de sección pequeños en versalitas; interruptores de 38 × 22 con perilla de 18; desplegable con doble chevron como el de macOS. Descripciones de una o dos líneas. **Movimiento del panel** (`settings.css`): la misma curva de la isla `(.32,.72,0,1)`, sin rebote y solo opacidad y desenfoque, nunca desplazamientos. El indicador del control segmentado se desliza (460 ms; mide lo que una pestaña y **sin huecos** entre ellas, o el paso no coincidiría); cada pestaña entra con `panel-in` (460 ms, secciones escalonadas 50 ms) —una animación CSS se reinicia sola al pasar el `v-show` de `display: none` a visible, por eso no hace falta `<Transition>` y el estado de los paneles se conserva—; los controles sueltos (el formato de cada app, el aviso de permisos) usan `<Transition name="soft">`; la lista desplegable tiene entrada y salida; todo se apaga con `prefers-reduced-motion`. **El hueco de la barra de desplazamiento se reserva siempre**, y `scrollbar-gutter: stable` **no basta**: las barras superpuestas de Windows 11 (las que salen al mover el ratón) no ocupan sitio, así que no había nada que reservar, la barra se dibujaba sobre los interruptores y el contenido se movía al pasar a una pestaña sin desplazamiento. Se usa una barra clásica fina (`::-webkit-scrollbar` de 12 px, que ocupa su carril) con `overflow-y: scroll` en `html` (que lo mantiene aunque no haya nada que desplazar). **`scrollbar-width` y `scrollbar-color` anulan esos estilos: no los pongas.** **Los desplegables llevan `:body-lock="false"`**: por defecto Reka UI bloquea el desplazamiento del cuerpo y lo compensa con un `padding-right` igual al ancho de la barra, y como la barra ahora siempre ocupa sitio, todo el panel se corría 12 px a la izquierda mientras había uno abierto (medido: 447 → 435 px). Con el bloqueo desactivado, la rueda puede mover la página con la lista abierta; es un mal menor. Medido: ancho útil 480 de 492 px en las cinco pestañas. El panel lleva `select-none` (el valor de los desplegables se quedaba resaltado en azul al pulsarlo) salvo el campo de ciudad.
+
 **El panel de ajustes va en pestañas** (`TABS` en `SettingsApp.vue`: Isla, Inicio, Música, Avisos, Apps), con la cabecera y la barra de
 pestañas fijas (`sticky`). Cada pestaña es un `v-show`, no un `v-if`: los paneles siguen montados y el estado (lista de pantallas,
 aplicaciones detectadas) no se pierde al cambiar. Un ajuste nuevo va en la pestaña de lo que toca.
@@ -485,12 +574,20 @@ sondeo, no al montar el hilo, para que desactivarlos surta efecto en caliente.
 
 ## Persistencia
 
-Los ajustes viven en `%APPDATA%\DynamicIsland\settings.json`, con la struct
+Los ajustes viven en `%APPDATA%\Dyna\settings.json` (`path()` copia los de `%APPDATA%\DynamicIsland` la primera vez, de cuando la app
+se llamaba «Dynamic Island»), con la struct
 `Settings` de `settings.rs` y `#[serde(default)]`, de modo que un campo nuevo no
 invalida un archivo existente. Añade siempre el valor en `impl Default`.
 
-El inicio automático se escribe en la clave `Run` del usuario actual, que no
-requiere permisos de administrador.
+El inicio automático (valor `Dyna`; `set_autostart` borra siempre el antiguo `DynamicIsland`, y en cada arranque de la compilación
+final se renueva con la ruta del ejecutable actual) se escribe en la clave `Run` del usuario actual, que no
+requiere permisos de administrador. **Guarda `current_exe()`**: activarlo desde
+`tauri:dev` deja la ruta de `target\debug` y al iniciar sesión se abría esa copia
+junto a la instalada. Si pasa, reactiva el ajuste desde la app instalada.
+
+**Instancia única** (`claim_single_instance`, lib.rs): un mutex con nombre; un
+segundo arranque se cierra solo. La compilación de desarrollo usa otro nombre, para
+poder probar con la instalada abierta.
 
 `settings::CURRENT` es un `Mutex<Option<Settings>>` global compartido entre la
 bandeja, las ventanas y el sondeo. Los cambios se aplican en caliente y se
